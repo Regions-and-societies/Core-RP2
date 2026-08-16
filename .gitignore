@@ -1,0 +1,7 @@
+
+# MSBuild intermediates
+Source/obj/
+Source/bin/
+
+# Built assembly — rebuilt on deploy, kept locally, not tracked (matches Core)
+Assemblies/*.dll

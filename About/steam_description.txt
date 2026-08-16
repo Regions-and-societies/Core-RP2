@@ -1,0 +1,80 @@
+[b]Discord Community:[/b] [url=https://discord.gg/eVBebZ2N9s]https://discord.gg/eVBebZ2N9s[/url]
+[b]Version:[/b] v0.1.0 (Target: RimWorld 1.5 / 1.6)
+
+[img]https://i.imgur.com/tWWMap9.png[/img]
+[img]https://i.imgur.com/TfTAgoV.png[/img]
+[img]https://i.imgur.com/Kjvsy4j.png[/img]
+
+[h1]Regions and Societies[/h1]
+[b][url=https://github.com/Regions-and-societies/Core-MMF/wiki]Official Wiki and Documentation[/url][/b]
+[b]Overhauls the world map with dynamic geographic province generation, world map overlays, and territory borders.[/b]
+
+Regions and Societies is the continuation of Regions and Territories under a new identity. It divides the globe into dynamic geographic provinces with defined borders, population densities, custom road linkages, and procedurally placed ruins.
+
+---
+
+[h2]Best on a New Colony - Existing Saves Supported in Compatibility Mode[/h2]
+[b]A world generated with the mod installed gets everything. A world already in progress is adopted in Compatibility Mode.[/b]
+
+Regions and Societies does most of its work during world generation. It draws the province boundaries and then places faction settlements according to them, respecting region occupancy limits, border buffers, and sequential expansion.
+
+Added to a world that already exists, it adopts that world in Compatibility Mode. Provinces are still drawn, territory is still owned and shown on the map modes, and the overlays work as normal. What stands down is placement: the mod will not decide where settlements and outposts may be built, because your world is already full of towns placed with no regard for those rules, and enforcing them now would refuse ground that has been settled since long before the mod arrived. Vanilla and any other mods keep control of placement, and more than one settlement may share a province.
+
+The mode is decided once per save and recorded in it. You can see and change it under [b]Strict territorial ownership[/b] in the mod settings while that save is loaded - though switching an in-progress world to strict starts applying rules to settlements that were never placed under them.
+
+[b]A new colony is still the recommended way to play.[/b] Compatibility mode exists so an existing save is usable, not so it is equivalent - geography-driven faction placement, region occupancy limits, border buffers and sequential expansion are the heart of what this mod does, and only a world generated with the mod installed gets them.
+
+Removing it from an in-progress save will log errors about missing province data when that save is next loaded. The save will usually still open, but this is not a supported path and you should expect a wall of red text.
+
+---
+
+[h2]Key Features[/h2]
+[list]
+[*] [b]Geographic Domain Mapping:[/b] Splits the world into dynamic provinces with clear, terrain-aware boundaries.
+[*] [b]Territorial Ownership:[/b] Factions own the ground they actually hold - a four-tier ladder from exclusive hold to loose claim, shaded on the map, with coastlines and mountains reading as real borders.
+[*] [b]Geography-Driven Faction Placement:[/b] Nations settle as contiguous territory, weighing established claim against resources and shying away from a rival's ground - one settlement per region, with intrusions costing goodwill.
+[*] [b]Territory and Population Overlays:[/b] Expandable world map modes for faction territory control and a population-density heatmap, built on the Map Mode Framework.
+[*] [b]Regional Demographics:[/b] Every region carries a deterministic population and belief distribution that shapes where settlements press outward.
+[*] [b]Procedural Trade Infrastructure:[/b] Links settlements with trade roads and places historical ruins across the world map.
+[/list]
+
+---
+
+[h2]Changelog (v0.1.0) - Migration and Rebrand[/h2]
+[list]
+[*] [b]New identity:[/b] Regions and Societies is the continuation of Regions and Territories (v0.8.0) under a new identity and packageId ([b]RegionsAndSocieties.Core[/b]). It installs as a NEW mod: it does not update the old mod in place, and saves made with the old packageId are not migrated.
+[*] [b]Compatibility model inverted:[/b] core no longer carries foreign-mod adapter profiles. Support for Empire, World Domination, Vanilla Factions Expanded and Vanilla Outposts Expanded moves to dedicated companion compatibility patches (released separately), each binding its target mod directly; core provides the adapter registration API they plug into.
+[*] [b]Two editions, unchanged:[/b] Map Mode Framework (this one) and Realistic Planets 2.
+[*] [b]Release provenance:[/b] every release now ships a CHECKSUMS.sha256 manifest recording its exact binaries, generated from the final build at cut time.
+[/list]
+[b]Full version history:[/b] [url=https://github.com/Regions-and-societies/Core-MMF/wiki/Changelog]github.com/Regions-and-societies/Core-MMF/wiki[/url]
+
+---
+
+[h2]Compatibility Matrix[/h2]
+[list]
+[*] [b]Royalty DLC:[/b] Compatible
+[*] [b]Ideology DLC:[/b] Compatible
+[*] [b]Biotech DLC:[/b] Compatible
+[*] [b]Anomaly DLC:[/b] Compatible
+[*] [b]Odyssey DLC:[/b] Fully Compatible and Optimized. Space factions are generated on the Orbit layer naturally, and terrestrial factions generate on the Surface layer.
+[*] [b]Map Mode Framework:[/b] Required for the map mode overlays.
+[*] [b]Empire, World Domination, Vanilla Factions Expanded, Vanilla Outposts Expanded:[/b] Supported through dedicated companion compatibility patches, released separately. Core alone classifies vanilla world objects.
+[*] [b]Existing saves:[/b] Supported in Compatibility Mode - provinces are generated and territory is drawn, but placement rules stand down and stay with vanilla or whichever mod owns them. A new colony still gets the full experience.
+[/list]
+
+---
+
+[h2]Requirements[/h2]
+[list]
+[*] Map Mode Framework
+[*] Harmony
+[/list]
+
+---
+
+[h2]Source Code and Support[/h2]
+GitHub: [url]https://github.com/Regions-and-societies/Core-MMF[/url]
+Steam Workshop: [url]https://steamcommunity.com/sharedfiles/filedetails/?id=3784666060[/url]
+Licence: [url=https://polyformproject.org/licenses/noncommercial/1.0.0/]PolyForm Noncommercial License 1.0.0[/url] - free for any noncommercial use.
+Support development: [url]https://ko-fi.com/archdukejim[/url]
