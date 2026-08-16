@@ -1,5 +1,10 @@
-# Regions and Societies (Core, Map Mode Framework edition)
+# Regions and Societies (Core, Realistic Planets 2 edition)
 A comprehensive layer for creating world population and resource calculations
+
+This is the **Realistic Planets 2 edition** — a fork of
+[Core-MMF](https://github.com/Regions-and-societies/Core-MMF) that depends on RP2's bundled
+map-mode framework instead of the standalone Map Mode Framework. See [FORK.md](FORK.md) for
+what diverges and how upstream releases are pulled forward.
 
 ## Release provenance
 
