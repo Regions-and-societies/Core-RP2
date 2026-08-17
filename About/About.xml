@@ -54,6 +54,7 @@ Features:
 - Territorial Ownership: a four-tier ladder from exclusive hold to loose claim, shaded on the map, with coastlines and mountains reading as real borders.
 - Geography-Driven Faction Placement: nations settle as contiguous territory, one settlement per region, weighing established claim against resources and shying away from rivals' ground.
 - Territory and Population Overlays: expandable world map modes for faction territory and population density.
+- One-Click Overlay Toggles: region borders and the Territories / Dwellings map modes each get their own toggle icon in the world-view controls.
 - Regional Demographics: every region carries a deterministic population and belief distribution that shapes where settlements press outward.
 - Procedural Trade Infrastructure: trade roads between settlements and historical ruins across the world map.
 
@@ -66,6 +67,7 @@ Requires: Realistic Planets 2, Harmony
 - Regions and Societies is the continuation of Regions and Territories (v0.8.0) under a new identity and packageId (RegionsAndSocieties.CoreRP2 for this edition). It installs as a NEW mod: it does not update the old mod in place, and saves made with the old packageId are not migrated.
 - Compatibility model inverted: core no longer carries foreign-mod adapter profiles. Support for Empire, World Domination, Vanilla Factions Expanded and Vanilla Outposts Expanded moves to dedicated companion compatibility patches (released separately), each binding its target mod directly; core provides the adapter registration API they plug into.
 - Two editions, unchanged: Map Mode Framework and Realistic Planets 2 (this one).
+- Overlay toggles: region borders and the Territories / Dwellings map modes are toggled directly from the world-view controls. Under Realistic Planets 2 these icons are the border overlay's home, since RP2's framework fork does not carry the settings panel the standard edition uses.
 - Release provenance: every release now ships a CHECKSUMS.sha256 manifest recording its exact binaries, generated from the final build at cut time.
 
 Source code: https://github.com/Regions-and-societies/Core-RP2
