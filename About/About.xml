@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+    <name>Regions and Societies (Realistic Planets 2)</name>
+    <author>Regions and Societies Team</author>
+    <packageId>RegionsAndSocieties.CoreRP2</packageId>
+    <url>https://github.com/Regions-and-societies/Core-RP2</url>
+    <modVersion>0.1.0</modVersion>
+    <supportedVersions>
+        <li>1.6</li>
+    </supportedVersions>
+    <!--
+        RP2 edition (Core-RP2#1). A fork of Regions and Societies built for Realistic Planets 2, which
+        bundles a fork of Map Mode Framework behind a type-forwarding shim and is incompatible with
+        NozoMe's original. It hard-depends on RP2 (which supplies the overlay framework) and is mutually
+        exclusive with both NozoMe's Map Mode Framework and the standard Regions and Societies edition —
+        all three provide/expect the same assembly name, so only one may load. Assembly name and public
+        API are kept identical to the standard edition, so dependent mods bind to whichever edition is
+        present.
+    -->
+    <modDependencies>
+        <li>
+            <packageId>koth.RealisticPlanets2</packageId>
+            <displayName>Realistic Planets 2</displayName>
+            <downloadUrl>https://github.com/Koth-87/Realistic-Planets</downloadUrl>
+        </li>
+    </modDependencies>
+    <incompatibleWith>
+        <li>RegionsAndSocieties.Core</li>
+        <li>NozoMe.MapModeFramework</li>
+    </incompatibleWith>
+    <loadAfter>
+        <li>koth.RealisticPlanets2</li>
+        <li>Matathias.Empire</li>
+        <li>OskarPotocki.VanillaFactionsExpanded.Core</li>
+        <li>vanillaexpanded.outposts</li>
+        <li>Ludeon.RimWorld.Royalty</li>
+        <li>Ludeon.RimWorld.Ideology</li>
+        <li>Ludeon.RimWorld.Biotech</li>
+        <li>Ludeon.RimWorld.Anomaly</li>
+    </loadAfter>
+    <description>
+Discord Community: https://discord.gg/eVBebZ2N9s
+Version: v0.1.0 (Target: RimWorld 1.6)
+
+Regions and Societies — Realistic Planets 2 edition
+Official Wiki and Documentation: https://github.com/Regions-and-societies/Core-MMF/wiki
+
+This is the Realistic Planets 2 build of Regions and Societies. It is identical to the standard mod except that it runs on the map-mode framework bundled with Realistic Planets 2 instead of the standalone Map Mode Framework. Use this edition if you play with Realistic Planets 2; use the standard edition otherwise. Do not run both editions, or both frameworks, at once.
+
+Regions and Societies overhauls the world map into living geography: dynamic geographic provinces with terrain-aware borders, four-tier faction territory ownership, geography-driven faction placement, regional demographics, a population-density heatmap, trade roads and procedural ruins. It is the continuation of Regions and Territories under a new identity.
+
+Features:
+- Geographic Domain Mapping: splits the world into dynamic provinces with clear, terrain-aware boundaries.
+- Territorial Ownership: a four-tier ladder from exclusive hold to loose claim, shaded on the map, with coastlines and mountains reading as real borders.
+- Geography-Driven Faction Placement: nations settle as contiguous territory, one settlement per region, weighing established claim against resources and shying away from rivals' ground.
+- Territory and Population Overlays: expandable world map modes for faction territory and population density.
+- Regional Demographics: every region carries a deterministic population and belief distribution that shapes where settlements press outward.
+- Procedural Trade Infrastructure: trade roads between settlements and historical ruins across the world map.
+
+*** BEST ON A NEW COLONY - EXISTING SAVES ARE SUPPORTED IN COMPATIBILITY MODE ***
+A world generated with the mod installed gets everything, including placement rules. A world already in progress is adopted in Compatibility Mode: provinces are drawn and territory is owned and shown, but placement stays with vanilla or whichever mod owns it. The mode is decided once per save and shown under Strict territorial ownership in the mod settings. Removing the mod from an in-progress save is not supported and will log errors.
+
+Requires: Realistic Planets 2, Harmony
+
+--- Changelog (v0.1.0) - Migration and Rebrand ---
+- Regions and Societies is the continuation of Regions and Territories (v0.8.0) under a new identity and packageId (RegionsAndSocieties.CoreRP2 for this edition). It installs as a NEW mod: it does not update the old mod in place, and saves made with the old packageId are not migrated.
+- Compatibility model inverted: core no longer carries foreign-mod adapter profiles. Support for Empire, World Domination, Vanilla Factions Expanded and Vanilla Outposts Expanded moves to dedicated companion compatibility patches (released separately), each binding its target mod directly; core provides the adapter registration API they plug into.
+- Two editions, unchanged: Map Mode Framework and Realistic Planets 2 (this one).
+- Release provenance: every release now ships a CHECKSUMS.sha256 manifest recording its exact binaries, generated from the final build at cut time.
+
+Source code: https://github.com/Regions-and-societies/Core-RP2
+Steam Workshop: https://steamcommunity.com/sharedfiles/filedetails/?id=3784666526
+Support development: https://ko-fi.com/archdukejim
+
+Full version history: https://github.com/Regions-and-societies/Core-MMF/wiki/Changelog
+    </description>
+</ModMetaData>

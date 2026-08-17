@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Defs>
+  <MapModeFramework.MapModeDef MayRequireAnyOf="NozoMe.MapModeFramework,koth.RealisticPlanets2">
+    <defName>SynapsePopulationDensity</defName>
+    <label>dwellings</label>
+    <description>Visualizes the density of pawn dwellings across the planet.</description>
+    <mapModeClass>RegionsAndSocieties.MapMode_PopulationDensity</mapModeClass>
+    <worldLayerClass>MapModeFramework.WorldLayer_MapMode_Terrain</worldLayerClass>
+    <iconPath>UI/MapModes/Default</iconPath>
+    <canCache>true</canCache>
+    <includeWater>false</includeWater>
+  </MapModeFramework.MapModeDef>
+
+  <MapModeFramework.MapModeDef MayRequireAnyOf="NozoMe.MapModeFramework,koth.RealisticPlanets2">
+    <defName>SynapseFactionTerritory</defName>
+    <label>Territories</label>
+    <description>Visualizes national domains and zones of control, shaded by owning faction.</description>
+    <mapModeClass>RegionsAndSocieties.MapMode_FactionTerritory</mapModeClass>
+    <worldLayerClass>MapModeFramework.WorldLayer_MapMode_Region</worldLayerClass>
+    <iconPath>UI/MapModes/Default</iconPath>
+    <canCache>true</canCache>
+    <includeWater>false</includeWater>
+    <RegionProperties>
+      <overrideSelector>true</overrideSelector>
+      <doBorders>true</doBorders>
+      <borderWidth>0.7</borderWidth>
+    </RegionProperties>
+  </MapModeFramework.MapModeDef>
+
+  <MapModeFramework.MapModeDef MayRequireAnyOf="NozoMe.MapModeFramework,koth.RealisticPlanets2">
+    <defName>SynapseMapModeGroup</defName>
+    <label>Regions and Societies</label>
+    <description>Visualizes world analytics from Regions and Societies (dropdown list).</description>
+    <mapModeClass>RegionsAndSocieties.MapMode_SynapseGroup</mapModeClass>
+    <worldLayerClass>MapModeFramework.WorldLayer_MapMode</worldLayerClass>
+    <iconPath>UI/MapModes/SynapseGroup</iconPath>
+    <canCache>false</canCache>
+    <includeWater>false</includeWater>
+  </MapModeFramework.MapModeDef>
+</Defs>
