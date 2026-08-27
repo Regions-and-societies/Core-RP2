@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 using RimWorld;
@@ -18,6 +19,8 @@ namespace RegionsAndSocieties.Demographics
         public int wealth;         // silver-ish, reflects the race's socioeconomic class
         public Ideo ideo;          // null when Ideology is off
         public Gender sex;
+        public AgeBucket ageBucket;         // child / working-age / elder, drawn from the local age pyramid (#10)
+        public EducationTier educationTier; // drawn from the local education distribution (#15)
     }
 
     /// <summary>A region's aggregated makeup, computed from its tile samples. Purely derived.</summary>
@@ -29,8 +32,27 @@ namespace RegionsAndSocieties.Demographics
         public readonly Dictionary<XenotypeDef, float> raceShares = new Dictionary<XenotypeDef, float>();
         public readonly Dictionary<XenotypeDef, int> medianWealthByRace = new Dictionary<XenotypeDef, int>();
         public readonly Dictionary<MemeDef, float> memeShares = new Dictionary<MemeDef, float>();
+        // Ideology structure (#13): the share of settled tiles under each ideo (primary + minor), the
+        // deepening of the meme layer into an ethnicity-style breakdown. Empty with Ideology off.
+        public readonly Dictionary<Ideo, float> ideoShares = new Dictionary<Ideo, float>();
         public float femaleFraction;
         public int overallMedianWealth;
+        // Age structure (#10): the share of settled tiles in each bucket, and the resulting median age.
+        // Indexed by (int)AgeBucket — [child, working-age, elder]. All zero for an unsettled region.
+        public readonly float[] ageShares = new float[AgeStructureRules.BucketCount];
+        public int medianAge;
+        // Education structure (#15): the share of settled tiles in each tier, indexed by (int)EducationTier
+        // [illiterate, basic, skilled, advanced], plus the collapsed 0-100 attainment index.
+        public readonly float[] educationShares = new float[EducationRules.TierCount];
+        public int educationIndex;
+        // Socioeconomic structure (#14): the share of settled tiles in each SES tier, indexed by
+        // (int)SesTier [subsistence, modest, prosperous, affluent], plus the collapsed 0-100 index.
+        public readonly float[] sesShares = new float[SocioeconomicRules.TierCount];
+        public int sesIndex;
+        // Employment structure (#16): the workforce split across occupation sectors, indexed by
+        // (int)OccupationSector [agriculture, industry, military, trade], plus the 0-100 employment rate.
+        public readonly float[] occupationShares = new float[EmploymentRules.SectorCount];
+        public int employmentRate;
         public bool biotechActive;
         public bool ideologyActive;
     }
@@ -55,6 +77,9 @@ namespace RegionsAndSocieties.Demographics
         private const int WealthSalt = 13;
         private const int SexSalt = 17;
         private const int IdeoSalt = 19;
+        private const int AgeSalt = 23;
+        private const int EduSalt = 29;
+        private const int IdeoPickSalt = 31;   // which of a faction's ideos (primary/minor) a tile follows
 
         private static readonly Dictionary<Faction, FactionDemographicProfile> profileCache = new Dictionary<Faction, FactionDemographicProfile>();
         private static readonly Dictionary<int, RegionDemographics> regionCache = new Dictionary<int, RegionDemographics>();
@@ -209,8 +234,29 @@ namespace RegionsAndSocieties.Demographics
             uint wealthState = DemographicsRules.TileSeed(WorldSeed, tileId, WealthSalt);
             sample.wealth = DemographicsRules.RangeInt(ref wealthState, (int)(baseWealth * 0.6), (int)(baseWealth * 1.4));
 
-            // Ideology from a pressure-weighted faction draw (factions sorted by load id for determinism).
-            sample.ideo = ProfileFor(PressureWeightedFaction(tileId, pf, pw, top)).primaryIdeo;
+            // Ideology and age both hang off the same pressure-weighted faction draw (factions sorted by
+            // load id for determinism) — the society whose norms and demographics dominate this tile.
+            Faction ageFaction = PressureWeightedFaction(tileId, pf, pw, top);
+            FactionDemographicProfile ageProf = ProfileFor(ageFaction);
+            // Ideology (#13): draw among the faction's ideos — its primary plus any minors — rather than
+            // always its primary, so a region reads as a belief mix. Own salt, independent of the draws
+            // above and of the faction pick.
+            sample.ideo = PickIdeo(tileId, ageProf);
+
+            // Age bucket: draw from the faction's tech/ideology pyramid, bent by the chosen race's
+            // longevity (a long-lived caste holds more elders). Independent salt so it doesn't correlate
+            // with the race/wealth/sex/ideo draws.
+            float[] agePyramid = AgeStructureRules.Pyramid(ageProf.techLevel, ageProf.natalistSkew, LongevityOf(chosen));
+            uint ageState = DemographicsRules.TileSeed(WorldSeed, tileId, AgeSalt);
+            int agePick = DemographicsRules.WeightedPick(ref ageState, agePyramid);
+            sample.ageBucket = agePick >= 0 ? (AgeBucket)agePick : AgeBucket.WorkingAge;
+
+            // Education tier: draw from the faction's tech/ideology distribution, raised by the chosen
+            // race's engineered intellect. Its own salt so it doesn't correlate with the other draws.
+            float[] eduDist = EducationRules.Pyramid(ageProf.techLevel, ageProf.researchSkew, AptitudeOf(chosen));
+            uint eduState = DemographicsRules.TileSeed(WorldSeed, tileId, EduSalt);
+            int eduPick = DemographicsRules.WeightedPick(ref eduState, eduDist);
+            sample.educationTier = eduPick >= 0 ? (EducationTier)eduPick : EducationTier.Basic;
             return sample;
         }
 
@@ -228,6 +274,17 @@ namespace RegionsAndSocieties.Demographics
             uint state = DemographicsRules.TileSeed(WorldSeed, tileId, IdeoSalt);
             int pick = DemographicsRules.WeightedPick(ref state, w);
             return pick >= 0 ? factions[order[pick]] : fallback;
+        }
+
+        /// <summary>Which of a faction's ideos a tile follows: a deterministic weighted draw over its
+        /// primary (heavy) and minor (lighter) ideos, so regions read as a belief mix rather than a
+        /// single monoculture. Falls back to the primary when there is nothing to weight.</summary>
+        private static Ideo PickIdeo(int tileId, FactionDemographicProfile prof)
+        {
+            if (prof?.ideos == null || prof.ideos.Length == 0) return prof?.primaryIdeo;
+            uint state = DemographicsRules.TileSeed(WorldSeed, tileId, IdeoPickSalt);
+            int pick = DemographicsRules.WeightedPick(ref state, prof.ideoWeights);
+            return pick >= 0 ? prof.ideos[pick] : prof.primaryIdeo;
         }
 
         /// <summary>The aggregated makeup of a region, cached. Recomputed when populations/objects change.</summary>
@@ -255,7 +312,11 @@ namespace RegionsAndSocieties.Demographics
             var factionCounts = new Dictionary<Faction, int>();
             var wealthByRace = new Dictionary<XenotypeDef, List<int>>();
             var memeCounts = new Dictionary<MemeDef, int>();
+            var ideoCounts = new Dictionary<Ideo, int>();
             var allWealth = new List<int>();
+            var ageCounts = new int[AgeStructureRules.BucketCount];
+            var eduCounts = new int[EducationRules.TierCount];
+            float longevityAcc = 0f;
             int female = 0;
 
             List<int> tiles = province.tiles;
@@ -267,6 +328,9 @@ namespace RegionsAndSocieties.Demographics
                 if (s.owner == null) continue;   // no pressure here — contributes only to the sex ratio
 
                 demo.settledTiles++;
+                ageCounts[(int)s.ageBucket]++;
+                eduCounts[(int)s.educationTier]++;
+                longevityAcc += LongevityOf(s.race);
                 factionCounts.TryGetValue(s.owner, out int fc); factionCounts[s.owner] = fc + 1;
                 if (s.race != null)
                 {
@@ -276,9 +340,13 @@ namespace RegionsAndSocieties.Demographics
                 }
                 allWealth.Add(s.wealth);
 
-                if (s.ideo?.memes != null)
-                    foreach (MemeDef m in s.ideo.memes)
-                        if (m != null) { memeCounts.TryGetValue(m, out int mc); memeCounts[m] = mc + 1; }
+                if (s.ideo != null)
+                {
+                    ideoCounts.TryGetValue(s.ideo, out int ic); ideoCounts[s.ideo] = ic + 1;
+                    if (s.ideo.memes != null)
+                        foreach (MemeDef m in s.ideo.memes)
+                            if (m != null) { memeCounts.TryGetValue(m, out int mc); memeCounts[m] = mc + 1; }
+                }
             }
 
             demo.femaleFraction = demo.tileCount > 0 ? (float)female / demo.tileCount : 0f;
@@ -295,12 +363,393 @@ namespace RegionsAndSocieties.Demographics
                 }
                 foreach (var kv in memeCounts)
                     demo.memeShares[kv.Key] = (float)kv.Value / demo.settledTiles;
+                foreach (var kv in ideoCounts)
+                    demo.ideoShares[kv.Key] = (float)kv.Value / demo.settledTiles;
 
                 int[] wealthArr = allWealth.ToArray();
                 demo.overallMedianWealth = DemographicsRules.Median(wealthArr, wealthArr.Length);
+
+                FillAgeStructure(demo, ageCounts, longevityAcc);
+                FillEducation(demo, eduCounts);
+                FillSes(demo, allWealth, RegionWealthMultiplier(province));
+                FillEmployment(demo, province);
             }
 
             return demo;
+        }
+
+        /// <summary>
+        /// Classify the region's per-tile wealth into SES tiers and collapse to a 0-100 index (#14). The
+        /// per-tile wealth already carries faction tech level and settlement size; <paramref name="multiplier"/>
+        /// folds in the region-level signals (resource richness, trade access) before classifying, so a
+        /// rich or well-connected region reads a tier higher. Shared by both aggregators (faction passes 1).
+        /// </summary>
+        private static void FillSes(RegionDemographics demo, List<int> wealth, float multiplier)
+        {
+            if (demo.settledTiles <= 0 || wealth == null || wealth.Count == 0) return;
+            var counts = new int[SocioeconomicRules.TierCount];
+            for (int i = 0; i < wealth.Count; i++)
+                counts[(int)SocioeconomicRules.TierFor((int)(wealth[i] * multiplier))]++;
+            for (int t = 0; t < SocioeconomicRules.TierCount; t++)
+                demo.sesShares[t] = (float)counts[t] / wealth.Count;
+            demo.sesIndex = SocioeconomicRules.Index(demo.sesShares);
+        }
+
+        // --- region-level SES signals (#14) ------------------------------------
+
+        // Per-tile resource ceiling (nutrition + biomass + minerals) that reads as "neutral" richness.
+        private const float RichnessReferenceCapPerTile = 700f;
+
+        /// <summary>The region wealth multiplier from the two region-level #14 signals: how rich the
+        /// terrain is and whether trade roads reach it. Neutral (1.0) baseline; a rich, well-connected
+        /// region reads wealthier, a barren isolated one poorer.</summary>
+        private static float RegionWealthMultiplier(GeographicProvince province)
+        {
+            return ResourceRichness(province) * (1f + 0.2f * TradeAccess(province));
+        }
+
+        /// <summary>Terrain richness as a wealth multiplier ~0.7..1.4, from the region's resource
+        /// ceilings per tile (nutrition + biomass + minerals). Neutral until the region's economy has
+        /// been assessed, so a demographic read never forces economic initialisation as a side effect.</summary>
+        private static float ResourceRichness(GeographicProvince province)
+        {
+            if (province == null || !province.initializedEconomics) return 1f;
+            int tiles = province.tiles != null ? province.tiles.Count : 0;
+            if (tiles <= 0) return 1f;
+            float perTile = (province.CapOf(Economy.ResourceKind.Nutrition)
+                + province.CapOf(Economy.ResourceKind.Biomass)
+                + province.CapOf(Economy.ResourceKind.Minerals)) / tiles;
+            return Mathf.Clamp(perTile / RichnessReferenceCapPerTile, 0.7f, 1.4f);
+        }
+
+        /// <summary>Trade-road access, 0..1: the share of the region's tiles a road passes through.
+        /// Connected regions trade richer, so this feeds a small wealth boost. Reads the grid only, so
+        /// it is safe on any world and needs no economic initialisation.</summary>
+        private static float TradeAccess(GeographicProvince province)
+        {
+            WorldGrid grid = Find.WorldGrid;
+            if (grid == null || province?.tiles == null || province.tiles.Count == 0) return 0f;
+            List<int> tiles = province.tiles;
+            int roaded = 0;
+            for (int i = 0; i < tiles.Count; i++)
+            {
+                int t = tiles[i];
+                if (t < 0 || t >= grid.TilesCount) continue;
+                var roads = grid[t].Roads;
+                if (roads != null && roads.Count > 0) roaded++;
+            }
+            return (float)roaded / tiles.Count;
+        }
+
+        // --- employment (#16) --------------------------------------------------
+
+        /// <summary>
+        /// Compute a region's occupation-sector mix and employment rate (#16) from region-level facts:
+        /// its dominant faction's tech level, the mix of world objects on it (a military base pulls to
+        /// the military sector, extraction outposts/camps to industry, cities to trade), and what its
+        /// terrain supports (fertile land to agriculture, mineral-rich to industry).
+        /// </summary>
+        private static void FillEmployment(RegionDemographics demo, GeographicProvince province)
+        {
+            if (demo.settledTiles <= 0 || province == null) return;
+            int tech = DominantFactionTech(demo);
+
+            CountWorldObjects(province, out int settlements, out int outposts, out int camps, out int military);
+            int total = settlements + outposts + camps + military;
+
+            int tiles = province.tiles != null ? province.tiles.Count : 0;
+            float agTerrain = 0f, indTerrain = 0f;
+            if (province.initializedEconomics && tiles > 0)
+            {
+                agTerrain = Mathf.Clamp(province.CapOf(Economy.ResourceKind.Nutrition) / tiles / 500f, 0f, 1.5f);
+                indTerrain = Mathf.Clamp(province.CapOf(Economy.ResourceKind.Minerals) / tiles / 400f, 0f, 1.5f);
+            }
+
+            float milFrac = total > 0 ? (float)military / total : 0f;
+            float setFrac = total > 0 ? (float)settlements / total : 0f;
+            float extractFrac = total > 0 ? (float)(outposts + camps) / total : 0f;
+            float road = TradeAccess(province);
+
+            float agSignal = agTerrain;
+            float indSignal = indTerrain + 0.7f * extractFrac;
+            float milSignal = milFrac;
+            float tradeSignal = 0.6f * setFrac + road;
+            float development = tiles > 0 ? Mathf.Clamp01((float)total / tiles * 4f) : 0f;
+
+            float[] shares = EmploymentRules.SectorShares(tech, agSignal, indSignal, milSignal, tradeSignal);
+            for (int i = 0; i < EmploymentRules.SectorCount; i++) demo.occupationShares[i] = shares[i];
+            demo.employmentRate = EmploymentRules.EmploymentRate(tech, development);
+        }
+
+        /// <summary>Faction-wide employment: no single region's terrain or object mix, so just the tech
+        /// baseline for the faction. Keeps the faction info readout populated (#16).</summary>
+        private static void FillEmploymentForFaction(RegionDemographics demo, Faction faction)
+        {
+            if (demo.settledTiles <= 0) return;
+            int tech = (int)(faction?.def?.techLevel ?? TechLevel.Industrial);
+            float[] shares = EmploymentRules.SectorShares(tech, 0f, 0f, 0f, 0f);
+            for (int i = 0; i < EmploymentRules.SectorCount; i++) demo.occupationShares[i] = shares[i];
+            demo.employmentRate = EmploymentRules.EmploymentRate(tech, 0f);
+        }
+
+        private static int DominantFactionTech(RegionDemographics demo)
+        {
+            Faction best = null;
+            float share = 0f;
+            foreach (var kv in demo.factionShares)
+                if (kv.Value > share) { share = kv.Value; best = kv.Key; }
+            return (int)(best?.def?.techLevel ?? TechLevel.Industrial);
+        }
+
+        /// <summary>Count the territorial world objects on a region's tiles, by kind — the labour-structure
+        /// signal for employment (#16).</summary>
+        private static void CountWorldObjects(GeographicProvince province, out int settlements, out int outposts, out int camps, out int military)
+        {
+            settlements = outposts = camps = military = 0;
+            if (Find.WorldObjects == null || province?.tiles == null || province.tiles.Count == 0) return;
+
+            var tileSet = new HashSet<int>(province.tiles);
+            List<WorldObject> all = Find.WorldObjects.AllWorldObjects;
+            for (int i = 0; i < all.Count; i++)
+            {
+                WorldObject o = all[i];
+                if (o == null) continue;
+                PlanetTile pt = o.Tile;
+                if (!pt.Valid || !tileSet.Contains(pt.tileId)) continue;
+                switch (WorldObjectClassifier.Classify(o))
+                {
+                    case Integration.WorldObjectKind.Settlement: settlements++; break;
+                    case Integration.WorldObjectKind.Outpost: outposts++; break;
+                    case Integration.WorldObjectKind.Camp: camps++; break;
+                    case Integration.WorldObjectKind.Military: military++; break;
+                }
+            }
+        }
+
+        /// <summary>Turn per-tier tile counts into shares and the collapsed 0-100 education index.
+        /// Shared by the region and faction aggregators.</summary>
+        private static void FillEducation(RegionDemographics demo, int[] eduCounts)
+        {
+            if (demo.settledTiles <= 0) return;
+            for (int i = 0; i < EducationRules.TierCount; i++)
+                demo.educationShares[i] = (float)eduCounts[i] / demo.settledTiles;
+            demo.educationIndex = EducationRules.Index(demo.educationShares);
+        }
+
+        /// <summary>
+        /// A compact age-structure readout for a region — median age and the three bucket shares — or
+        /// null when it has no settled tiles. One formatter shared by the map overlay tooltip, the
+        /// region selection panel and the debug report, so those three never drift apart.
+        /// </summary>
+        public static string AgeStructureSummary(GeographicProvince province)
+        {
+            if (province == null) return null;
+            RegionDemographics demo = ForRegion(province);
+            if (demo.settledTiles <= 0) return null;
+            return $"Age structure (median {demo.medianAge}):\n"
+                + $"  Children {demo.ageShares[(int)AgeBucket.Child]:P0}"
+                + $"   Working-age {demo.ageShares[(int)AgeBucket.WorkingAge]:P0}"
+                + $"   Elders {demo.ageShares[(int)AgeBucket.Elder]:P0}";
+        }
+
+        /// <summary>
+        /// A one-line sex-ratio readout for a region — percent female / male, with a note when a
+        /// mod-driven skew (draft, war losses) is currently bending it off the baseline — or null when
+        /// the region has no settled tiles. Shared by the overlay tooltip and the region panel (#11).
+        /// </summary>
+        public static string SexRatioSummary(GeographicProvince province)
+        {
+            if (province == null) return null;
+            RegionDemographics demo = ForRegion(province);
+            if (demo.settledTiles <= 0) return null;
+
+            int femalePct = Mathf.RoundToInt(demo.femaleFraction * 100f);
+            string line = $"Sex ratio: {femalePct}% female / {100 - femalePct}% male";
+            float skew = RegionDemographicsStress.CurrentFemaleDelta(province.id);
+            if (Mathf.Abs(skew) >= 0.01f)
+                line += skew > 0f ? "  (skewed female — men drafted or lost)" : "  (skewed male)";
+            return line;
+        }
+
+        /// <summary>
+        /// A xenotype breakdown for a region — the top races by share — or a plain statement that with
+        /// Biotech off everyone is Baseliner (so the overlay says so rather than painting a flat map as
+        /// if it were data, #12). Null when the region has no settled tiles. Shared by the overlay
+        /// tooltip and the region panel.
+        /// </summary>
+        public static string XenotypeSummary(GeographicProvince province)
+        {
+            if (province == null) return null;
+            RegionDemographics demo = ForRegion(province);
+            if (demo.settledTiles <= 0) return null;
+
+            if (!demo.biotechActive) return "Xenotypes: all Baseliner (Biotech not active)";
+            if (demo.raceShares.Count == 0) return "Xenotypes: (no data)";
+
+            var top = demo.raceShares.OrderByDescending(k => k.Value).Take(5)
+                .Select(k => $"{k.Key.LabelCap} {k.Value:P0}");
+            return "Xenotypes:\n  " + string.Join("   ", top);
+        }
+
+        /// <summary>
+        /// An education breakdown for a region — the 0-100 attainment index and the four tier shares —
+        /// or null when the region has no settled tiles. Shared by the overlay tooltip and the region
+        /// panel (#15).
+        /// </summary>
+        public static string EducationSummary(GeographicProvince province)
+        {
+            if (province == null) return null;
+            RegionDemographics demo = ForRegion(province);
+            if (demo.settledTiles <= 0) return null;
+            return $"Education (index {demo.educationIndex}/100):\n"
+                + $"  Illiterate {demo.educationShares[(int)EducationTier.Illiterate]:P0}"
+                + $"   Basic {demo.educationShares[(int)EducationTier.Basic]:P0}"
+                + $"   Skilled {demo.educationShares[(int)EducationTier.Skilled]:P0}"
+                + $"   Advanced {demo.educationShares[(int)EducationTier.Advanced]:P0}";
+        }
+
+        /// <summary>
+        /// A socioeconomic breakdown for a region — the 0-100 wealth index and the four SES-tier shares —
+        /// or null when the region has no settled tiles. Shared by the overlay tooltip and the region
+        /// panel (#14).
+        /// </summary>
+        public static string SocioeconomicSummary(GeographicProvince province)
+        {
+            if (province == null) return null;
+            RegionDemographics demo = ForRegion(province);
+            if (demo.settledTiles <= 0) return null;
+            return $"Socioeconomic (index {demo.sesIndex}/100):\n"
+                + $"  Subsistence {demo.sesShares[(int)SesTier.Subsistence]:P0}"
+                + $"   Modest {demo.sesShares[(int)SesTier.Modest]:P0}"
+                + $"   Prosperous {demo.sesShares[(int)SesTier.Prosperous]:P0}"
+                + $"   Affluent {demo.sesShares[(int)SesTier.Affluent]:P0}";
+        }
+
+        /// <summary>
+        /// An ideology breakdown for a region — the top ideos by share and how similar its beliefs are to
+        /// its neighbours' — or a plain statement that with Ideology off everyone is secular (so the
+        /// overlay says so rather than painting a flat map, #13). Null when the region has no settled tiles.
+        /// Shared by the overlay tooltip and the region panel.
+        /// </summary>
+        public static string IdeologySummary(GeographicProvince province)
+        {
+            if (province == null) return null;
+            RegionDemographics demo = ForRegion(province);
+            if (demo.settledTiles <= 0) return null;
+
+            if (!demo.ideologyActive) return "Ideology: secular (Ideology not active)";
+            if (demo.ideoShares.Count == 0) return "Ideology: (no data)";
+
+            var top = demo.ideoShares.OrderByDescending(k => k.Value).Take(4)
+                .Select(k => $"{k.Key.name} {k.Value:P0}");
+            string line = "Ideology:\n  " + string.Join("   ", top);
+
+            float sim = AverageNeighborSimilarity(province);
+            if (sim >= 0f) line += $"\n  Belief similarity to neighbours: {sim:P0}";
+            return line;
+        }
+
+        /// <summary>The single most common ideo in a region and its share, or null when there is none
+        /// (Ideology off, or unsettled). For the dominant-ideology overlay (#13).</summary>
+        public static Ideo DominantIdeo(RegionDemographics demo, out float share)
+        {
+            share = 0f;
+            Ideo best = null;
+            if (demo?.ideoShares == null) return null;
+            foreach (var kv in demo.ideoShares)
+                if (kv.Value > share) { share = kv.Value; best = kv.Key; }
+            return best;
+        }
+
+        /// <summary>Meme-level similarity between two regions' belief mixes, 0..1 (#13): the cosine of
+        /// their meme-share vectors over the union of memes present. 1 = the same beliefs, 0 = none shared.</summary>
+        public static float MemeSimilarity(GeographicProvince a, GeographicProvince b)
+        {
+            if (a == null || b == null) return 0f;
+            RegionDemographics da = ForRegion(a), db = ForRegion(b);
+            if (da.memeShares.Count == 0 || db.memeShares.Count == 0) return 0f;
+
+            var keys = new List<MemeDef>(da.memeShares.Keys);
+            foreach (MemeDef k in db.memeShares.Keys) if (!da.memeShares.ContainsKey(k)) keys.Add(k);
+
+            var va = new float[keys.Count];
+            var vb = new float[keys.Count];
+            for (int i = 0; i < keys.Count; i++)
+            {
+                da.memeShares.TryGetValue(keys[i], out va[i]);
+                db.memeShares.TryGetValue(keys[i], out vb[i]);
+            }
+            return DemographicsRules.Cosine(va, vb);
+        }
+
+        /// <summary>A region's average meme similarity to its adjacent land regions, or -1 when it has no
+        /// comparable neighbour. How culturally distinct a region is from its surroundings (#13).</summary>
+        public static float AverageNeighborSimilarity(GeographicProvince province)
+        {
+            var mgr = Find.World?.GetComponent<SynapseRegionManager>();
+            if (mgr?.Provinces == null || province == null) return -1f;
+
+            float sum = 0f;
+            int n = 0;
+            foreach (GeographicProvince p in mgr.Provinces)
+            {
+                if (p == null || p.id == province.id || p.provinceType != ProvinceType.Land) continue;
+                if (!ProvinceAdjacency.AreAdjacent(mgr, province.id, p.id)) continue;
+                sum += MemeSimilarity(province, p);
+                n++;
+            }
+            return n > 0 ? sum / n : -1f;
+        }
+
+        /// <summary>
+        /// An employment breakdown for a region — the workforce split across occupation sectors and the
+        /// employment rate — or null when the region has no settled tiles. Shared by the overlay tooltip
+        /// and the region panel (#16).
+        /// </summary>
+        public static string EmploymentSummary(GeographicProvince province)
+        {
+            if (province == null) return null;
+            RegionDemographics demo = ForRegion(province);
+            if (demo.settledTiles <= 0) return null;
+            return $"Employment (rate {demo.employmentRate}%):\n"
+                + $"  Agriculture {demo.occupationShares[(int)OccupationSector.Agriculture]:P0}"
+                + $"   Industry {demo.occupationShares[(int)OccupationSector.Industry]:P0}"
+                + $"   Military {demo.occupationShares[(int)OccupationSector.Military]:P0}"
+                + $"   Trade {demo.occupationShares[(int)OccupationSector.Trade]:P0}";
+        }
+
+        /// <summary>The largest occupation sector in a region and its share. For the employment overlay (#16).</summary>
+        public static OccupationSector DominantSector(RegionDemographics demo, out float share)
+        {
+            share = 0f;
+            int best = 0;
+            if (demo?.occupationShares == null) return OccupationSector.Agriculture;
+            for (int i = 0; i < EmploymentRules.SectorCount; i++)
+                if (demo.occupationShares[i] > share) { share = demo.occupationShares[i]; best = i; }
+            return (OccupationSector)best;
+        }
+
+        /// <summary>The single most common xenotype in a region and its share, or null when there is no
+        /// xenotype data (Biotech off, or unsettled). For the dominant-xenotype overlay (#12).</summary>
+        public static XenotypeDef DominantXenotype(RegionDemographics demo, out float share)
+        {
+            share = 0f;
+            XenotypeDef best = null;
+            if (demo?.raceShares == null) return null;
+            foreach (var kv in demo.raceShares)
+                if (kv.Value > share) { share = kv.Value; best = kv.Key; }
+            return best;
+        }
+
+        /// <summary>Turn per-bucket tile counts into shares and a median age, using the region's average
+        /// longevity to stretch the elder band. Shared by the region and faction aggregators.</summary>
+        private static void FillAgeStructure(RegionDemographics demo, int[] ageCounts, float longevityAcc)
+        {
+            if (demo.settledTiles <= 0) return;
+            for (int i = 0; i < AgeStructureRules.BucketCount; i++)
+                demo.ageShares[i] = (float)ageCounts[i] / demo.settledTiles;
+            float avgLongevity = longevityAcc / demo.settledTiles;
+            demo.medianAge = AgeStructureRules.MedianAge(demo.ageShares, avgLongevity);
         }
 
         /// <summary>
@@ -331,7 +780,11 @@ namespace RegionsAndSocieties.Demographics
             var raceCounts = new Dictionary<XenotypeDef, int>();
             var wealthByRace = new Dictionary<XenotypeDef, List<int>>();
             var memeCounts = new Dictionary<MemeDef, int>();
+            var ideoCounts = new Dictionary<Ideo, int>();
             var allWealth = new List<int>();
+            var ageCounts = new int[AgeStructureRules.BucketCount];
+            var eduCounts = new int[EducationRules.TierCount];
+            float longevityAcc = 0f;
             int female = 0;
 
             foreach (GeographicProvince p in mgr.Provinces)
@@ -346,6 +799,9 @@ namespace RegionsAndSocieties.Demographics
 
                     demo.tileCount++;
                     demo.settledTiles++;
+                    ageCounts[(int)s.ageBucket]++;
+                    eduCounts[(int)s.educationTier]++;
+                    longevityAcc += LongevityOf(s.race);
                     if (s.sex == Gender.Female) female++;
                     if (s.race != null)
                     {
@@ -354,9 +810,13 @@ namespace RegionsAndSocieties.Demographics
                         wl.Add(s.wealth);
                     }
                     allWealth.Add(s.wealth);
-                    if (s.ideo?.memes != null)
-                        foreach (MemeDef m in s.ideo.memes)
-                            if (m != null) { memeCounts.TryGetValue(m, out int mc); memeCounts[m] = mc + 1; }
+                    if (s.ideo != null)
+                    {
+                        ideoCounts.TryGetValue(s.ideo, out int ic); ideoCounts[s.ideo] = ic + 1;
+                        if (s.ideo.memes != null)
+                            foreach (MemeDef m in s.ideo.memes)
+                                if (m != null) { memeCounts.TryGetValue(m, out int mc); memeCounts[m] = mc + 1; }
+                    }
                 }
             }
 
@@ -372,8 +832,14 @@ namespace RegionsAndSocieties.Demographics
                 }
                 foreach (var kv in memeCounts)
                     demo.memeShares[kv.Key] = (float)kv.Value / demo.settledTiles;
+                foreach (var kv in ideoCounts)
+                    demo.ideoShares[kv.Key] = (float)kv.Value / demo.settledTiles;
                 int[] wealthArr = allWealth.ToArray();
                 demo.overallMedianWealth = DemographicsRules.Median(wealthArr, wealthArr.Length);
+                FillAgeStructure(demo, ageCounts, longevityAcc);
+                FillEducation(demo, eduCounts);
+                FillSes(demo, allWealth, 1f);   // faction-wide: no single region's richness/trade to apply
+                FillEmploymentForFaction(demo, faction);
             }
             return demo;
         }
@@ -505,6 +971,86 @@ namespace RegionsAndSocieties.Demographics
             catch { return 0f; }
         }
 
+        // --- xenotype longevity (the age pyramid's third signal) ---------------
+
+        private static readonly Dictionary<XenotypeDef, float> longevityCache = new Dictionary<XenotypeDef, float>();
+
+        /// <summary>
+        /// How long-lived a race is, 0 (mortal baseline) to 1 (effectively ageless). Detected from the
+        /// xenotype's genes by name — an Ageless / Deathless / Longevity gene marks a caste that
+        /// accumulates elders (e.g. sanguophage-adjacent). Keyword-based so it also catches modded
+        /// longevity genes; first-pass and tunable, like the biome-affinity and underclass detectors.
+        /// Returns 0 when Biotech is off (null race) so the pyramid degrades to the plain tech baseline.
+        /// </summary>
+        private static float LongevityOf(XenotypeDef race)
+        {
+            if (race?.genes == null) return 0f;
+            if (longevityCache.TryGetValue(race, out float cached)) return cached;
+
+            float longevity = 0f;
+            for (int i = 0; i < race.genes.Count; i++)
+            {
+                string n = race.genes[i]?.defName;
+                if (n == null) continue;
+                if (n.IndexOf("Ageless", StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("Deathless", StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("Longevity", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    longevity = 1f;   // strongest signal wins; no need to keep scanning
+                    break;
+                }
+            }
+            longevityCache[race] = longevity;
+            return longevity;
+        }
+
+        // --- xenotype intellectual aptitude (the education pyramid's third signal) ---
+
+        private static readonly Dictionary<XenotypeDef, float> aptitudeCache = new Dictionary<XenotypeDef, float>();
+        private static SkillDef intellectualSkill;
+        private static StatDef learningStat;
+        private static bool aptitudeStatsResolved;
+
+        private static void ResolveAptitudeStats()
+        {
+            if (aptitudeStatsResolved) return;
+            aptitudeStatsResolved = true;
+            intellectualSkill = DefDatabase<SkillDef>.GetNamedSilentFail("Intellectual");
+            learningStat = DefDatabase<StatDef>.GetNamedSilentFail("GlobalLearningFactor");
+        }
+
+        /// <summary>
+        /// How engineered-for-intellect a race is, 0 (baseline) to 1, from its genes: an intellectual
+        /// aptitude (a Genie-style caste) or a global learning-factor boost. Derived from the genes so it
+        /// works for any modded xenotype, like the biome-affinity and longevity detectors; first-pass and
+        /// tunable. Returns 0 when Biotech is off (null race) so the education pyramid degrades to the
+        /// plain tech baseline.
+        /// </summary>
+        private static float AptitudeOf(XenotypeDef race)
+        {
+            if (race?.genes == null) return 0f;
+            if (aptitudeCache.TryGetValue(race, out float cached)) return cached;
+
+            ResolveAptitudeStats();
+            float aptitude = 0f;
+            for (int i = 0; i < race.genes.Count; i++)
+            {
+                GeneDef g = race.genes[i];
+                if (g == null) continue;
+
+                if (g.aptitudes != null && intellectualSkill != null)
+                    foreach (Aptitude a in g.aptitudes)
+                        if (a.skill == intellectualSkill) aptitude += a.level * 0.12f;   // ~4-level aptitude ≈ 0.5
+
+                if (learningStat != null && g.statOffsets != null)
+                    foreach (StatModifier so in g.statOffsets)
+                        if (so?.stat == learningStat) aptitude += so.value * 0.5f;
+            }
+            aptitude = Mathf.Clamp01(aptitude);
+            aptitudeCache[race] = aptitude;
+            return aptitude;
+        }
+
         // Straight-line ("crow flies") great-circle distance between two tiles, in tile-widths.
         private static float CrowTiles(WorldGrid grid, int a, int b)
         {
@@ -544,7 +1090,8 @@ namespace RegionsAndSocieties.Demographics
     {
         public static readonly FactionDemographicProfile Empty = new FactionDemographicProfile
         {
-            races = new XenotypeDef[0], raceWeights = new float[0], raceMedianWealth = new int[0], fallbackWealth = 300
+            races = new XenotypeDef[0], raceWeights = new float[0], raceMedianWealth = new int[0], fallbackWealth = 300,
+            techLevel = (int)TechLevel.Industrial, natalistSkew = 0f, researchSkew = 0f
         };
 
         public XenotypeDef[] races;
@@ -552,12 +1099,19 @@ namespace RegionsAndSocieties.Demographics
         public int[] raceMedianWealth;
         public int fallbackWealth;
         public Ideo primaryIdeo;
+        public Ideo[] ideos = new Ideo[0];       // primary + minors, the pool a tile's belief is drawn from (#13)
+        public float[] ideoWeights = new float[0];
+        public int techLevel;        // RimWorld TechLevel ordinal — shapes the base age/education spreads (#10/#15)
+        public float natalistSkew;   // 0..1, from pro-natalist memes; pushes the age pyramid toward children
+        public float researchSkew;   // -1..1, from tech vs primitivist memes; bends the education distribution
 
         public static FactionDemographicProfile Build(Faction faction)
         {
             var p = new FactionDemographicProfile();
-            int baseWealth = BaseWealth(faction.def?.techLevel ?? TechLevel.Industrial);
+            TechLevel tech = faction.def?.techLevel ?? TechLevel.Industrial;
+            int baseWealth = BaseWealth(tech);
             p.fallbackWealth = baseWealth;
+            p.techLevel = (int)tech;   // seeds the age pyramid (#10): tribal birth-heavy vs spacer flat
 
             var races = new List<XenotypeDef>();
             var weights = new List<float>();
@@ -588,11 +1142,93 @@ namespace RegionsAndSocieties.Demographics
 
             if (ModLister.IdeologyInstalled)
             {
-                try { p.primaryIdeo = faction.ideos?.PrimaryIdeo; }
+                try
+                {
+                    p.primaryIdeo = faction.ideos?.PrimaryIdeo;
+                    BuildIdeoPool(p, faction);
+                }
                 catch { p.primaryIdeo = null; }
             }
+            p.natalistSkew = NatalistSkew(p.primaryIdeo);
+            p.researchSkew = ResearchSkew(p.primaryIdeo);
 
             return p;
+        }
+
+        /// <summary>
+        /// Gather the faction's ideos into the draw pool a tile's belief is picked from (#13): its
+        /// primary at full weight plus each minor ideo at a lighter weight, so most of a faction's land
+        /// follows the primary while pockets follow the minors. Degrades to primary-only (or empty) when
+        /// a faction has no minors or no ideos at all.
+        /// </summary>
+        private static void BuildIdeoPool(FactionDemographicProfile p, Faction faction)
+        {
+            var ideos = new List<Ideo>();
+            var weights = new List<float>();
+            if (p.primaryIdeo != null) { ideos.Add(p.primaryIdeo); weights.Add(1f); }
+
+            List<Ideo> minors = faction.ideos?.IdeosMinorListForReading;
+            if (minors != null)
+                foreach (Ideo io in minors)
+                    if (io != null && io != p.primaryIdeo) { ideos.Add(io); weights.Add(0.35f); }
+
+            p.ideos = ideos.ToArray();
+            p.ideoWeights = weights.ToArray();
+        }
+
+        /// <summary>
+        /// How an ideology bends education, -1 (primitivist) to +1 (tech/transhumanist), read from its
+        /// memes by name — a transhumanist/tech/progress meme lifts attainment, a primitivist/nature/
+        /// tunneler/tree meme pulls it down. Keyword-based so it catches modded memes too; returns 0 with
+        /// no Ideology, so the education model degrades to the bare tech baseline (#15). First-pass, tunable.
+        /// </summary>
+        private static float ResearchSkew(Ideo ideo)
+        {
+            if (ideo?.memes == null) return 0f;
+            float skew = 0f;
+            foreach (MemeDef m in ideo.memes)
+            {
+                string n = m?.defName;
+                if (n == null) continue;
+                if (n.IndexOf("Transhuman", StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("Tech", StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("Progress", StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("Research", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    skew += 1f;
+                }
+                if (n.IndexOf("Primitiv", StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("Nature", StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("Tunnel", StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("Tree", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    skew -= 1f;
+                }
+            }
+            return Mathf.Clamp(skew, -1f, 1f);
+        }
+
+        /// <summary>
+        /// How strongly an ideology pushes for children, 0 (neutral) to 1 (pro-natalist), read from its
+        /// memes by name — a Natalist / Fertility / Fecund meme skews the pyramid young. Keyword-based so
+        /// it catches modded memes too; returns 0 with no Ideology, so the age model degrades to the bare
+        /// tech pyramid. First-pass and tunable.
+        /// </summary>
+        private static float NatalistSkew(Ideo ideo)
+        {
+            if (ideo?.memes == null) return 0f;
+            foreach (MemeDef m in ideo.memes)
+            {
+                string n = m?.defName;
+                if (n == null) continue;
+                if (n.IndexOf("Natal", StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("Fertil", StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("Fecund", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return 1f;
+                }
+            }
+            return 0f;
         }
 
         private static int BaseWealth(TechLevel tech)

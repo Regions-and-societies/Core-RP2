@@ -103,6 +103,32 @@ run_suite demographics Exe \
     Tests/DemographicsRulesTests.cs \
     $SRC/Demographics/DemographicsRules.cs
 
+# 0.2.0 age-structure core (#10): tech-level base pyramids + natalist/longevity skews + median age.
+# Pure, no game — same rationale as the demographics core above.
+run_suite agestructure Exe \
+    Tests/AgeStructureRulesTests.cs \
+    $SRC/Demographics/AgeStructureRules.cs
+
+# 0.2.0 education-structure core (#15): tech-level base distributions + research/aptitude skews + index.
+run_suite education Exe \
+    Tests/EducationRulesTests.cs \
+    $SRC/Demographics/EducationRules.cs
+
+# 0.2.0 socioeconomic-tiering core (#14): wealth thresholds -> SES tiers + index. Pure, no game.
+run_suite socioeconomic Exe \
+    Tests/SocioeconomicRulesTests.cs \
+    $SRC/Demographics/SocioeconomicRules.cs
+
+# 0.2.0 employment core (#16): tech base sector splits + signal-driven shares + employment rate.
+run_suite employment Exe \
+    Tests/EmploymentRulesTests.cs \
+    $SRC/Demographics/EmploymentRules.cs
+
+# 0.2.0 territory-shape core (#19): embeddedness, desired-ratio scoring, domain compactness.
+run_suite compactness Exe \
+    Tests/CompactnessRulesTests.cs \
+    $SRC/Placement/CompactnessRules.cs
+
 run_suite resource Exe \
     Tests/RimWorldStubs.cs Tests/ResourceTests.cs \
     $INTEGRATION_PURE $SRC/Economy/*.cs
@@ -128,6 +154,10 @@ run_suite typecheck Library \
     $SRC/WorldObjectPlacementUtility.cs $SRC/OutpostPlacementUtility.cs \
     $SRC/RegionalOwnershipUtility.cs \
     $SRC/GeographicProvince.cs $SRC/IRegionDemographicProvider.cs \
+    $SRC/Demographics/AgeStructureRules.cs \
+    $SRC/Demographics/EducationRules.cs \
+    $SRC/Demographics/SocioeconomicRules.cs \
+    $SRC/Demographics/EmploymentRules.cs \
     $SRC/ProvinceAdjacency.cs \
     \
     $SRC/Patches/Patch_TileFinder_IsValidTileForNewSettlement.cs \

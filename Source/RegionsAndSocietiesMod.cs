@@ -23,6 +23,10 @@ namespace RegionsAndSocieties
             l.Label($"Claimed land area (settlement density): {Mathf.RoundToInt(FactionPlacementSettings.claimedLandAreaPercent * 100f)}%",
                 tooltip: "The single density knob (#51): the target share of livable land area claimed by faction territories at world generation. Higher means more settlements. Replaces the old tile-count scaling; also settable on the world-generation screen. Applies to newly generated worlds.");
             FactionPlacementSettings.claimedLandAreaPercent = l.Slider(FactionPlacementSettings.claimedLandAreaPercent, 0.10f, 0.90f);
+
+            l.Label($"Territory compactness (squaring): {Mathf.RoundToInt(FactionPlacementSettings.territoryCompactness * 100f)}%",
+                tooltip: "How strongly territories prefer squaring off over spidering (#19). Growth favors provinces already embedded in the domain — filling pockets before extending tendrils. 0% is the old purely-greedy behavior; 100% means a poorly-connected province is chosen only when its land is dramatically better. Applies to newly generated worlds and to expansion mods that read the compactness endpoint.");
+            FactionPlacementSettings.territoryCompactness = l.Slider(FactionPlacementSettings.territoryCompactness, 0f, 1f);
             l.GapLine();
 
             l.CheckboxLabeled("Show ownership calculation breakdown in the region panel",
@@ -75,6 +79,12 @@ namespace RegionsAndSocieties
                 float fall = Integration.WorldObjectIntegrationSettings.demographicFalloff;
                 fall = l.SliderLabeled($"   Demographic falloff ^{fall:0.00}  (higher = borders flip more easily)", fall, 0.25f, 4f);
                 Integration.WorldObjectIntegrationSettings.demographicFalloff = (float)System.Math.Round(fall, 2);
+
+                float genYears = Integration.WorldObjectIntegrationSettings.demographicGenerationYears;
+                genYears = Mathf.Round(l.SliderLabeled(
+                    $"   War/draft skew recovery: {genYears:0} years  (how long a region's sex ratio takes to recover from combat losses)",
+                    genYears, 1f, 30f));
+                Integration.WorldObjectIntegrationSettings.demographicGenerationYears = genYears;
             }
 
             l.Gap();

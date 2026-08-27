@@ -64,6 +64,15 @@ namespace RegionsAndSocieties
         public static float claimedLandAreaPercent = 0.50f;
 
         /// <summary>
+        /// #19: how strongly territory growth prefers squaring off over spidering, 0..1. Candidate
+        /// provinces below the desired embeddedness ratio have their suitability scaled down in
+        /// proportion, blended in by this weight — 0 is the legacy purely-greedy behaviour, 1 the full
+        /// shape penalty. A preference, never a rule: a cornered faction still takes the awkward
+        /// province when its land is dramatically better.
+        /// </summary>
+        public static float territoryCompactness = 0.6f;
+
+        /// <summary>
         /// Whether <b>newly generated</b> worlds enforce R&amp;T's settlement and outpost placement
         /// rules. Worlds already in progress decide for themselves on load and are not affected by
         /// this — a world built without the rules keeps compatibility mode, and one built with them
@@ -105,6 +114,7 @@ namespace RegionsAndSocieties
             Scribe_Values.Look(ref maxRegionSize, "maxRegionSize", 150);
             Scribe_Values.Look(ref maxThreatPercent, "maxThreatPercent", 0.50f);
             Scribe_Values.Look(ref claimedLandAreaPercent, "maxSettlementPercentOfRegions", 0.50f);
+            Scribe_Values.Look(ref territoryCompactness, "territoryCompactness", 0.6f);
             Scribe_Values.Look(ref strictTerritorialOwnershipDefault, "strictTerritorialOwnershipDefault", true);
             Scribe_Values.Look(ref showCalculationBreakdowns, "showCalculationBreakdowns", false);
             Scribe_Values.Look(ref regionPanelUseShift, "regionPanelUseShift", false);

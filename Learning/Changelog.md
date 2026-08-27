@@ -2,6 +2,20 @@
 
 Full version history. The mod page and Workshop description show only the latest release; earlier versions are recorded here. Versions before 0.1.0 shipped under the former identity, **RimSynapse - Regions and Territories**, and are kept below as the predecessor's history.
 
+## v0.2.0 - Regional Demographics
+
+Every region now carries a full demographic profile — seven axes, each deterministic from the world seed (nothing stored in the save), each with its own map overlay, a region-panel breakdown, and a public endpoint for other mods.
+
+- **Age structure** — children / working-age / elders and a median age, from faction tech level (tribal birth-heavy pyramids vs. spacer flat), pro-natalist ideology memes, and xenotype longevity genes.
+- **Sex ratio** — a deterministic ~50/50 baseline plus a mod-facing hook API (`DemographicHooks`): a companion mod can report a draft in progress (transient skew, men-first unless the caller says otherwise) or combat losses (a generational scar that decays back over a configurable number of years — default 15, slider provided).
+- **Race (xenotypes)** — caste shares from the owning factions' xenotype sets; mod-added xenotypes flow through automatically with stable overlay colours. With Biotech off the overlay says "all Baseliner" rather than painting a flat map.
+- **Ideology** — deepened from the meme layer into primary + minor ideoligion shares per region, plus meme-level belief similarity between neighbouring regions. Overlay tints each region in its dominant ideo's own colour. Secular (and says so) with Ideology off.
+- **Income / socioeconomic status** — subsistence / modest / prosperous / affluent tiers with a 0–100 index, from per-tile wealth lifted by the region's resource richness and trade-road access.
+- **Education** — illiterate / basic / skilled / advanced tiers with a 0–100 index, from tech level, research-vs-primitivist memes, and engineered-intellect xenotype genes.
+- **Employment** — an agriculture / industry / military / trade occupation mix and an employment rate, from the region's world-object mix (garrisons pull military, extraction outposts industry, cities trade) and its terrain.
+- **Territory compactness** — faction domains now square off instead of spidering: candidate provinces poorly embedded in the domain are down-weighted (a preference, never a rule), tunable with a new **Territory compactness** slider. Public `TerritoryCompactnessUtility` lets expansion mods rank candidates with the same metric.
+- **Dwellings readout** — the population tooltip and inspect pane now answer for every habitable tile (zero included) as a compass block of the tile and its neighbours, so empty land reads as "0 here" rather than as a broken tooltip.
+
 ## v0.1.0 - Migration and Rebrand
 
 The first release as **Regions and Societies**.

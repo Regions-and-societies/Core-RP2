@@ -56,6 +56,16 @@ namespace DemographicsRulesTests
             Check("empty sample -> 0", DemographicsRules.Median(new int[] { }, 0) == 0);
             Check("single value", DemographicsRules.Median(new int[] { 77 }, 1) == 77);
 
+            Section("cosine similarity (belief-mix comparison)");
+            Check("identical vectors -> 1", Approx(DemographicsRules.Cosine(new[] { 0.5f, 0.5f }, new[] { 0.5f, 0.5f }), 1f));
+            Check("proportional vectors -> 1", Approx(DemographicsRules.Cosine(new[] { 1f, 2f }, new[] { 2f, 4f }), 1f));
+            Check("orthogonal vectors -> 0", Approx(DemographicsRules.Cosine(new[] { 1f, 0f }, new[] { 0f, 1f }), 0f));
+            float partial = DemographicsRules.Cosine(new[] { 1f, 1f, 0f }, new[] { 1f, 0f, 0f });
+            Check($"partial overlap is between 0 and 1 (got {partial:0.00})", partial > 0.4f && partial < 0.9f);
+            Check("all-zero -> 0", DemographicsRules.Cosine(new[] { 0f, 0f }, new[] { 0f, 0f }) == 0f);
+            Check("mismatched length -> 0", DemographicsRules.Cosine(new[] { 1f }, new[] { 1f, 1f }) == 0f);
+            Check("null -> 0", DemographicsRules.Cosine(null, new[] { 1f }) == 0f);
+
             Console.WriteLine();
             Console.WriteLine(failures == 0 ? "ALL DEMOGRAPHICS-RULE TESTS PASSED" : failures + " DEMOGRAPHICS-RULE TEST(S) FAILED");
             return failures == 0 ? 0 : 1;
@@ -69,6 +79,8 @@ namespace DemographicsRulesTests
                 if (DemographicsRules.WeightedPick(ref state, weights) != expected) return false;
             return true;
         }
+
+        private static bool Approx(float a, float b) => Math.Abs(a - b) < 0.0005f;
 
         private static void Section(string name)
         {

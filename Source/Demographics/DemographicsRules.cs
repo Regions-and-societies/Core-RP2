@@ -161,6 +161,27 @@ namespace RegionsAndSocieties.Demographics
         }
 
         /// <summary>
+        /// Cosine similarity of two equal-length non-negative vectors, clamped to [0,1]. Used to compare
+        /// two regions' meme-share profiles (#13): 1 = identical belief mix, 0 = no shared memes. Returns
+        /// 0 for null, mismatched-length, empty, or all-zero inputs. Pure — same inputs, same output.
+        /// </summary>
+        public static float Cosine(float[] a, float[] b)
+        {
+            if (a == null || b == null || a.Length != b.Length || a.Length == 0) return 0f;
+            double dot = 0, na = 0, nb = 0;
+            for (int i = 0; i < a.Length; i++)
+            {
+                dot += (double)a[i] * b[i];
+                na += (double)a[i] * a[i];
+                nb += (double)b[i] * b[i];
+            }
+            if (na <= 0 || nb <= 0) return 0f;
+            double c = dot / (Math.Sqrt(na) * Math.Sqrt(nb));
+            if (c < 0) c = 0; else if (c > 1) c = 1;
+            return (float)c;
+        }
+
+        /// <summary>
         /// The median of a sorted-or-unsorted integer sample (used for per-race median wealth). Returns
         /// 0 for an empty sample. Copies and sorts, so callers pass a throwaway array.
         /// </summary>
