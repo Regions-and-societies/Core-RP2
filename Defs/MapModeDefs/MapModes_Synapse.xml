@@ -12,6 +12,83 @@
   </MapModeFramework.MapModeDef>
 
   <MapModeFramework.MapModeDef MayRequireAnyOf="NozoMe.MapModeFramework,koth.RealisticPlanets2">
+    <defName>SynapseAgeStructure</defName>
+    <label>age structure</label>
+    <description>Shades each region by the median age of its people, from youthful green to elderly red.</description>
+    <mapModeClass>RegionsAndSocieties.MapMode_AgeStructure</mapModeClass>
+    <worldLayerClass>MapModeFramework.WorldLayer_MapMode_Terrain</worldLayerClass>
+    <iconPath>UI/MapModes/Default</iconPath>
+    <canCache>true</canCache>
+    <includeWater>false</includeWater>
+  </MapModeFramework.MapModeDef>
+
+  <MapModeFramework.MapModeDef MayRequireAnyOf="NozoMe.MapModeFramework,koth.RealisticPlanets2">
+    <defName>SynapseSexRatio</defName>
+    <label>sex ratio</label>
+    <description>Shades each region by its sex balance — blue where men outnumber women, magenta where women outnumber men, neutral where it is even.</description>
+    <mapModeClass>RegionsAndSocieties.MapMode_SexRatio</mapModeClass>
+    <worldLayerClass>MapModeFramework.WorldLayer_MapMode_Terrain</worldLayerClass>
+    <iconPath>UI/MapModes/Default</iconPath>
+    <canCache>true</canCache>
+    <includeWater>false</includeWater>
+  </MapModeFramework.MapModeDef>
+
+  <MapModeFramework.MapModeDef MayRequireAnyOf="NozoMe.MapModeFramework,koth.RealisticPlanets2">
+    <defName>SynapseXenotype</defName>
+    <label>xenotypes</label>
+    <description>Tints each region by its dominant xenotype, darker where that caste dominates more strongly. Needs Biotech; without it every pawn is Baseliner.</description>
+    <mapModeClass>RegionsAndSocieties.MapMode_Xenotype</mapModeClass>
+    <worldLayerClass>MapModeFramework.WorldLayer_MapMode_Terrain</worldLayerClass>
+    <iconPath>UI/MapModes/Default</iconPath>
+    <canCache>true</canCache>
+    <includeWater>false</includeWater>
+  </MapModeFramework.MapModeDef>
+
+  <MapModeFramework.MapModeDef MayRequireAnyOf="NozoMe.MapModeFramework,koth.RealisticPlanets2">
+    <defName>SynapseEducation</defName>
+    <label>education</label>
+    <description>Shades each region by its education index, from an unschooled brown to a highly-educated blue.</description>
+    <mapModeClass>RegionsAndSocieties.MapMode_Education</mapModeClass>
+    <worldLayerClass>MapModeFramework.WorldLayer_MapMode_Terrain</worldLayerClass>
+    <iconPath>UI/MapModes/Default</iconPath>
+    <canCache>true</canCache>
+    <includeWater>false</includeWater>
+  </MapModeFramework.MapModeDef>
+
+  <MapModeFramework.MapModeDef MayRequireAnyOf="NozoMe.MapModeFramework,koth.RealisticPlanets2">
+    <defName>SynapseWealth</defName>
+    <label>wealth</label>
+    <description>Shades each region by its socioeconomic index, from a poor deep red to an affluent green.</description>
+    <mapModeClass>RegionsAndSocieties.MapMode_Wealth</mapModeClass>
+    <worldLayerClass>MapModeFramework.WorldLayer_MapMode_Terrain</worldLayerClass>
+    <iconPath>UI/MapModes/Default</iconPath>
+    <canCache>true</canCache>
+    <includeWater>false</includeWater>
+  </MapModeFramework.MapModeDef>
+
+  <MapModeFramework.MapModeDef MayRequireAnyOf="NozoMe.MapModeFramework,koth.RealisticPlanets2">
+    <defName>SynapseIdeology</defName>
+    <label>ideology</label>
+    <description>Tints each region by its dominant ideoligion in that ideo's own colour, darker where belief is more uniform. Needs the Ideology DLC; without it every region is secular.</description>
+    <mapModeClass>RegionsAndSocieties.MapMode_Ideology</mapModeClass>
+    <worldLayerClass>MapModeFramework.WorldLayer_MapMode_Terrain</worldLayerClass>
+    <iconPath>UI/MapModes/Default</iconPath>
+    <canCache>true</canCache>
+    <includeWater>false</includeWater>
+  </MapModeFramework.MapModeDef>
+
+  <MapModeFramework.MapModeDef MayRequireAnyOf="NozoMe.MapModeFramework,koth.RealisticPlanets2">
+    <defName>SynapseEmployment</defName>
+    <label>employment</label>
+    <description>Tints each region by its dominant occupation sector — green agriculture, steel industry, red military, gold trade — darker where that sector dominates more.</description>
+    <mapModeClass>RegionsAndSocieties.MapMode_Employment</mapModeClass>
+    <worldLayerClass>MapModeFramework.WorldLayer_MapMode_Terrain</worldLayerClass>
+    <iconPath>UI/MapModes/Default</iconPath>
+    <canCache>true</canCache>
+    <includeWater>false</includeWater>
+  </MapModeFramework.MapModeDef>
+
+  <MapModeFramework.MapModeDef MayRequireAnyOf="NozoMe.MapModeFramework,koth.RealisticPlanets2">
     <defName>SynapseFactionTerritory</defName>
     <label>Territories</label>
     <description>Visualizes national domains and zones of control, shaded by owning faction.</description>

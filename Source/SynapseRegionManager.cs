@@ -256,9 +256,18 @@ namespace RegionsAndSocieties
 
         // WorldComponent has no FinalizeInit, so the notice rides the first tick instead. Ticks only
         // run once the game is actually playing, which is exactly when the letter stack is ready.
+        // Coarse cadence for decaying demographic skews (#11): ~2500 ticks (an in-game hour) is ample
+        // granularity for a decay measured in years, and keeps the override sweep off the hot path.
+        private const int DemographicDecayInterval = 2500;
+
         public override void WorldComponentTick()
         {
             base.WorldComponentTick();
+
+            if (Find.TickManager != null && Find.TickManager.TicksGame % DemographicDecayInterval == 0)
+            {
+                Demographics.RegionDemographicsStress.Tick(DemographicDecayInterval);
+            }
 
             if (!pendingCompatibilityNotice) return;
             pendingCompatibilityNotice = false;

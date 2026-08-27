@@ -140,8 +140,10 @@ namespace RegionsAndSocieties
 
         public override string GetTooltip(int tile)
         {
-            int pop = PopulationDensityUtility.GetSourcePopulationAtTile(tile);
-            return pop > 0 ? $"Pawn dwellings: {pop}" : null;
+            // Every habitable tile answers, zero included, with its neighbours around it and the
+            // hovered tile bolded in the middle — so an empty stretch of map reads as "0 here",
+            // not as the tooltip being broken. Ocean and ice still show nothing.
+            return PopulationDensityUtility.GetDwellingsDisplay(tile);
         }
     }
 }

@@ -439,6 +439,90 @@ The tier is **derived, never stored**, so it cannot go stale, and it means the s
 
 ---
 
+## Regional demographics read API (0.2.0)
+
+Namespace `RegionsAndSocieties.Demographics`. Everything here is **derived on read** from the world seed and current world state — deterministic, cached against the population cache version, never scribed.
+
+### RegionDemographicsUtility.ForRegion / ForFaction
+
+```csharp
+public static RegionDemographics ForRegion(GeographicProvince province)
+public static RegionDemographics ForFaction(Faction faction)
+```
+
+Returns the aggregated make-up of a region (or a faction's whole territory). Never null; a region with `settledTiles == 0` is wilderness. `RegionDemographics` fields:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `tileCount`, `settledTiles` | `int` | Region size and how many tiles are under demographic pressure. |
+| `factionShares` | `Dictionary<Faction,float>` | Dominant-pressure owner share per tile. |
+| `raceShares`, `medianWealthByRace` | `Dictionary<XenotypeDef,...>` | Xenotype mix (#12). Empty with Biotech off. |
+| `ideoShares` | `Dictionary<Ideo,float>` | Primary + minor ideoligion shares (#13). Empty with Ideology off. |
+| `memeShares` | `Dictionary<MemeDef,float>` | Meme-level belief mix. |
+| `femaleFraction` | `float` | Sex ratio (#11), baseline ~0.5 plus any hook-driven skew. |
+| `ageShares[3]`, `medianAge` | `float[]`, `int` | Child / working-age / elder shares and median age (#10). Index by `(int)AgeBucket`. |
+| `educationShares[4]`, `educationIndex` | `float[]`, `int` | Illiterate→advanced shares and 0–100 index (#15). Index by `(int)EducationTier`. |
+| `sesShares[4]`, `sesIndex` | `float[]`, `int` | Subsistence→affluent shares and 0–100 index (#14). Index by `(int)SesTier`. |
+| `occupationShares[4]`, `employmentRate` | `float[]`, `int` | Agriculture/industry/military/trade mix and 0–100 rate (#16). Index by `(int)OccupationSector`. |
+| `overallMedianWealth` | `int` | Silver-ish median wealth. |
+| `biotechActive`, `ideologyActive` | `bool` | Which DLC axes are live. |
+
+Formatted one-call summaries (the same text the region panel and overlay tooltips show — null when the region is unsettled): `AgeStructureSummary`, `SexRatioSummary`, `XenotypeSummary`, `IdeologySummary`, `EducationSummary`, `SocioeconomicSummary`, `EmploymentSummary` — each `(GeographicProvince) → string`.
+
+Cross-region comparison (#13): `MemeSimilarity(GeographicProvince a, GeographicProvince b) → float` (cosine of the meme-share vectors, 0..1) and `AverageNeighborSimilarity(GeographicProvince) → float` (mean similarity to adjacent land regions; −1 when no comparable neighbour).
+
+Example — a spread mod deciding whether a region would welcome a faction's culture:
+
+```csharp
+var demo = RegionDemographicsUtility.ForRegion(province);
+bool educated = demo.educationIndex > 60;
+float similarity = RegionDemographicsUtility.AverageNeighborSimilarity(province);
+```
+
+## Demographic hooks (write side, 0.2.0)
+
+`RegionsAndSocieties.Demographics.DemographicHooks` — the seam a companion mod (a drafting system, a war mod, a storyteller) drives to bend a region's sex ratio over time. Core models the deterministic baseline and owns nothing about drafting or war; skews are sparse per-region overrides, persist through save/load, and decay on the world tick.
+
+```csharp
+// A draft is in progress: shift the female fraction and HOLD it until EndDraft.
+// Positive delta = men pulled away (the default men-first draft); negative = women first.
+public static void BeginDraft(int regionId, float femaleDelta, string tag = "draft")
+public static void EndDraft(int regionId, string tag = "draft")
+
+// A battle's toll: a lopsided loss leaves the region short of that sex, recovering
+// linearly over the configured generation length (default 15 in-game years, player slider).
+// Repeat calls compound the scar and restart its recovery.
+public static void RecordCombatLosses(int regionId, int maleDeaths, int femaleDeaths)
+
+// Raw escape hatch: durationTicks 0 = hold until cleared; >0 = linear decay to zero.
+public static void SkewSexRatio(int regionId, float femaleDelta, int durationTicks = 0, string tag = null)
+
+// The net skew currently in force (delta on femaleFraction; 0 when unstressed).
+public static float CurrentFemaleDelta(int regionId)
+```
+
+The pre-existing wealth stress (`RegionDemographicsStress.StressWealth(regionId, multiplier)`) is unchanged and composes with these.
+
+## Territory compactness (0.2.0)
+
+How faction domains avoid spidering, exposed so expansion mods rank candidate provinces with the same metric core uses. Pure maths in `RegionsAndSocieties.Placement.CompactnessRules`; world reads in `RegionsAndSocieties.TerritoryCompactnessUtility`.
+
+```csharp
+// Fraction of a candidate's claimable borders (Land-type neighbours only — ocean and
+// impassable ranges are geography's free wall) the faction already holds, 0..1.
+public static float TerritoryCompactnessUtility.Embeddedness(GeographicProvince candidate, Faction faction)
+
+// A whole domain's shape, 0..1: 1 = closed blob, near 0 = pure spider.
+public static float TerritoryCompactnessUtility.DomainCompactness(Faction faction)
+
+// The scoring rule (pure): suitability scaled toward (embeddedness/desiredRatio) below the
+// ratio, blended by weight (0 = ignore shape). CompactnessRules.DefaultDesiredRatio = 0.4.
+public static float CompactnessRules.EffectiveScore(float suitability, float embeddedness,
+                                                    float desiredRatio, float weight)
+```
+
+The player-facing weight is `FactionPlacementSettings.territoryCompactness` (0..1). An expansion mod choosing its next province should rank by `EffectiveScore(suitability, Embeddedness(p, faction), CompactnessRules.DefaultDesiredRatio, FactionPlacementSettings.territoryCompactness)` to inherit the player's setting.
+
 ## Settings surfaces
 
 Two public static settings classes. Consumers should read the **composed gates**, not the raw fields, so the master switch is always respected.
@@ -454,11 +538,11 @@ Two public static settings classes. Consumers should read the **composed gates**
 | `OutpostSeedingActive` | Worldgen outpost seeding runs (needs a creator from a patch). |
 | `PopulationCapsActive` | The per-tier population-cap model runs. |
 
-Raw fields (`masterEnabled`, `placementGovernance`, ..., `populationCapMultiplier`, `demographicReach`, `demographicFalloff`, `demographicFalloffModel`, `logUnknownWorldObjects`) are public and persisted, but flip them only from a settings UI acting for the player.
+Raw fields (`masterEnabled`, `placementGovernance`, ..., `populationCapMultiplier`, `demographicReach`, `demographicFalloff`, `demographicFalloffModel`, `demographicGenerationYears` (how many in-game years a generational sex skew takes to decay; default 15), `logUnknownWorldObjects`) are public and persisted, but flip them only from a settings UI acting for the player.
 
 ### FactionPlacementSettings (`RegionsAndSocieties`)
 
-Public statics a patch may read: `claimedLandAreaPercent` (the worldgen density knob), `strictTerritorialOwnershipDefault` (whether newly generated worlds enforce placement rules; in-progress worlds decide on load — see [Save Compatibility](Save_Compatibility)), `minRegionSize` / `maxRegionSize`, `showCalculationBreakdowns` / `ShowCalculations`, and the per-faction `FactionPlacementProfile` table via `GetProfile(FactionDef def)`.
+Public statics a patch may read: `claimedLandAreaPercent` (the worldgen density knob), `territoryCompactness` (how strongly domains prefer squaring over spidering, 0..1 — see Territory compactness above), `strictTerritorialOwnershipDefault` (whether newly generated worlds enforce placement rules; in-progress worlds decide on load — see [Save Compatibility](Save_Compatibility)), `minRegionSize` / `maxRegionSize`, `showCalculationBreakdowns` / `ShowCalculations`, and the per-faction `FactionPlacementProfile` table via `GetProfile(FactionDef def)`.
 
 ---
 

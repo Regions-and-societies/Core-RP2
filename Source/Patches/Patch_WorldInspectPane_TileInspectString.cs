@@ -51,10 +51,12 @@ namespace RegionsAndSocieties.Patches
 
             // Source population: the dwellings actually on this tile, not the smeared influence
             // field that used to make tiles miles from any settlement report phantom dwellings (#55).
-            int pop = PopulationDensityUtility.GetSourcePopulationAtTile(tileId);
-            if (pop > 0)
+            // Shown for every habitable tile — zero included — as a compass block of this tile
+            // (bolded) and its neighbours, so the map reads the same whether a tile is empty or not.
+            string dwellings = PopulationDensityUtility.GetDwellingsDisplay(tileId);
+            if (!string.IsNullOrEmpty(dwellings))
             {
-                sb.AppendLine("Pawn dwellings: " + pop);
+                sb.AppendLine(dwellings);
             }
 
             AppendTerritoryInfo(sb, tileId);

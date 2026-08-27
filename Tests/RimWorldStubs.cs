@@ -122,6 +122,7 @@ namespace RegionsAndSocieties
         public static int GetSettlementPopulation(RimWorld.Planet.Settlement s) { return 42; }
         public static int GetPopulationAtTile(int tileId) { return 0; }
         public static int GetSourcePopulationAtTile(int targetTile) { return 0; }
+        public static string GetDwellingsDisplay(int tileId) { return null; }
         public static int CacheVersion { get; set; }
     }
 }

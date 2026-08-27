@@ -62,6 +62,14 @@ namespace RegionsAndSocieties.Integration
         /// 4 InverseSquare). Live-tunable so tuning can move off linear.</summary>
         public static int demographicFalloffModel = 0;
 
+        /// <summary>
+        /// How many in-game years a "generational" demographic skew takes to decay back to baseline —
+        /// the scar a mod records through <c>DemographicHooks.RecordCombatLosses</c> when a war
+        /// devastates a region (#11). Transient skews (a draft in progress) don't use this; they hold
+        /// until cleared. Live-tunable; default 15.
+        /// </summary>
+        public static float demographicGenerationYears = 15f;
+
         // --- Diagnostics ----------------------------------------------------------
         /// <summary>Log each world-object type that no adapter or heuristic could classify (once per type).</summary>
         public static bool logUnknownWorldObjects = true;
@@ -80,6 +88,7 @@ namespace RegionsAndSocieties.Integration
             Scribe_Values.Look(ref demographicReach, "integration_demographicReach", 1.0f);
             Scribe_Values.Look(ref demographicFalloff, "integration_demographicFalloff", 1.0f);
             Scribe_Values.Look(ref demographicFalloffModel, "integration_demographicFalloffModel", 0);
+            Scribe_Values.Look(ref demographicGenerationYears, "integration_demographicGenerationYears", 15f);
 
             Scribe_Values.Look(ref logUnknownWorldObjects, "integration_logUnknownWorldObjects", true);
         }

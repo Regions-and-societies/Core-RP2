@@ -1037,8 +1037,30 @@ namespace RegionsAndSocieties.Integration
             sb.AppendLine("=== R&T region demographics (#36) ===");
             sb.AppendLine($"region #{province.id} {province.name}: {demo.settledTiles}/{demo.tileCount} settled tiles"
                 + $"    biotech={demo.biotechActive}  ideology={demo.ideologyActive}");
-            sb.AppendLine($"female fraction {demo.femaleFraction:P0}    overall median wealth {demo.overallMedianWealth}"
+            float sexSkew = RegionDemographicsStress.CurrentFemaleDelta(province.id);
+            sb.AppendLine($"female fraction {demo.femaleFraction:P0}"
+                + (sexSkew != 0f ? $" (skew {sexSkew:+0%;-0%})" : "")
+                + $"    overall median wealth {demo.overallMedianWealth}"
                 + (RegionDemographicsStress.HasOverride(province.id) ? "  [STRESSED]" : ""));
+            sb.AppendLine($"age (#10): median {demo.medianAge}"
+                + $"    children {demo.ageShares[(int)AgeBucket.Child]:P0}"
+                + $"  working-age {demo.ageShares[(int)AgeBucket.WorkingAge]:P0}"
+                + $"  elders {demo.ageShares[(int)AgeBucket.Elder]:P0}");
+            sb.AppendLine($"education (#15): index {demo.educationIndex}/100"
+                + $"    illiterate {demo.educationShares[(int)EducationTier.Illiterate]:P0}"
+                + $"  basic {demo.educationShares[(int)EducationTier.Basic]:P0}"
+                + $"  skilled {demo.educationShares[(int)EducationTier.Skilled]:P0}"
+                + $"  advanced {demo.educationShares[(int)EducationTier.Advanced]:P0}");
+            sb.AppendLine($"socioeconomic (#14): index {demo.sesIndex}/100"
+                + $"    subsistence {demo.sesShares[(int)SesTier.Subsistence]:P0}"
+                + $"  modest {demo.sesShares[(int)SesTier.Modest]:P0}"
+                + $"  prosperous {demo.sesShares[(int)SesTier.Prosperous]:P0}"
+                + $"  affluent {demo.sesShares[(int)SesTier.Affluent]:P0}");
+            sb.AppendLine($"employment (#16): rate {demo.employmentRate}%"
+                + $"    agriculture {demo.occupationShares[(int)OccupationSector.Agriculture]:P0}"
+                + $"  industry {demo.occupationShares[(int)OccupationSector.Industry]:P0}"
+                + $"  military {demo.occupationShares[(int)OccupationSector.Military]:P0}"
+                + $"  trade {demo.occupationShares[(int)OccupationSector.Trade]:P0}");
             sb.AppendLine($"tuning: model {(Demographics.DemographicsRules.FalloffModel)WorldObjectIntegrationSettings.demographicFalloffModel}"
                 + $"  reach ×{WorldObjectIntegrationSettings.demographicReach:0.00}  shape {WorldObjectIntegrationSettings.demographicFalloff:0.00}");
 
@@ -1053,6 +1075,14 @@ namespace RegionsAndSocieties.Integration
             {
                 demo.medianWealthByRace.TryGetValue(kv.Key, out int w);
                 sb.AppendLine($"  {kv.Key.LabelCap}: {kv.Value:P0}    wealth {w}");
+            }
+
+            if (demo.ideoShares.Count > 0)
+            {
+                float sim = RegionDemographicsUtility.AverageNeighborSimilarity(province);
+                sb.AppendLine("ideologies (#13)" + (sim >= 0f ? $"  [neighbour similarity {sim:P0}]" : "") + ":");
+                foreach (var kv in demo.ideoShares.OrderByDescending(k => k.Value))
+                    sb.AppendLine($"  {kv.Key.name}: {kv.Value:P0}");
             }
 
             if (demo.memeShares.Count > 0)
@@ -1099,7 +1129,7 @@ namespace RegionsAndSocieties.Integration
             foreach (var row in rows)
             {
                 RegionDemographics d = row.d;
-                sb.AppendLine($"-- {row.f.Name}: {d.settledTiles} tiles    median wealth {d.overallMedianWealth}    female {d.femaleFraction:P0} --");
+                sb.AppendLine($"-- {row.f.Name}: {d.settledTiles} tiles    median wealth {d.overallMedianWealth}    female {d.femaleFraction:P0}    median age {d.medianAge} --");
                 foreach (var kv in d.raceShares.OrderByDescending(k => k.Value))
                 {
                     d.medianWealthByRace.TryGetValue(kv.Key, out int w);
@@ -1168,6 +1198,17 @@ namespace RegionsAndSocieties.Integration
 
             sb.AppendLine($"world objects={total}; vanilla Settlements={vanillaSettlements}; classified territorial={classifiedTerritorial} (settlement={classifiedSettlement})");
             sb.AppendLine($"holdings mapped to a province={mappedToProvince}; UNMAPPED (provinceId<0)={unmapped}; null faction={nullFaction}");
+
+            // #19: domain shape per faction — 1.0 is a closed blob, near 0 is a pure spider. The value
+            // the territory-compactness slider is meant to raise.
+            sb.AppendLine("domain compactness (#19, 1 = blob, 0 = spider):");
+            foreach (Faction f in Find.FactionManager.AllFactionsListForReading)
+            {
+                if (f == null || f.IsPlayer || f.Hidden) continue;
+                if (!all.Any(o => o?.Faction == f && WorldObjectClassifier.Classify(o) == WorldObjectKind.Settlement)) continue;
+                sb.AppendLine($"  {f.Name}: {TerritoryCompactnessUtility.DomainCompactness(f):0.00}");
+            }
+
             sb.AppendLine("Sample holdings:");
             sb.Append(examples.ToString().TrimEnd());
             return sb.ToString().TrimEnd();

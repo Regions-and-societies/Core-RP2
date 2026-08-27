@@ -1,5 +1,5 @@
 [b]Discord Community:[/b] [url=https://discord.gg/eVBebZ2N9s]https://discord.gg/eVBebZ2N9s[/url]
-[b]Version:[/b] v0.1.0 (Target: RimWorld 1.6)
+[b]Version:[/b] v0.2.1 (Target: RimWorld 1.6)
 
 [img]https://i.imgur.com/tWWMap9.png[/img]
 [img]https://i.imgur.com/TfTAgoV.png[/img]
@@ -20,13 +20,13 @@ Regions and Societies is the continuation of Regions and Territories under a new
 
 Regions and Societies does most of its work during world generation. It draws the province boundaries and then places faction settlements according to them, respecting region occupancy limits, border buffers, and sequential expansion.
 
-Added to a world that already exists, it adopts that world in Compatibility Mode. Provinces are still drawn, territory is still owned and shown on the map modes, and the overlays work as normal. What stands down is placement: the mod will not decide where settlements and outposts may be built, because your world is already full of towns placed with no regard for those rules, and enforcing them now would refuse ground that has been settled since long before the mod arrived. Vanilla and any other mods keep control of placement, and more than one settlement may share a province.
+Added to a world that already exists, it adopts that world in Compatibility Mode. Provinces are still drawn and territory is still owned and shown, but placement stands down: the mod will not decide where settlements and outposts may be built, because that world was settled long before it arrived. Vanilla and other mods keep control of placement, and more than one settlement may share a province.
 
 The mode is decided once per save and recorded in it. You can see and change it under [b]Strict territorial ownership[/b] in the mod settings while that save is loaded - though switching an in-progress world to strict starts applying rules to settlements that were never placed under them.
 
-[b]A new colony is still the recommended way to play.[/b] Compatibility mode exists so an existing save is usable, not so it is equivalent - geography-driven faction placement, region occupancy limits, border buffers and sequential expansion are the heart of what this mod does, and only a world generated with the mod installed gets them.
+[b]A new colony is still the recommended way to play.[/b] Compatibility mode makes an existing save usable, not equivalent - geography-driven placement, occupancy limits, border buffers and sequential expansion are the heart of the mod, and only a world generated with it installed gets them.
 
-Removing it from an in-progress save will log errors about missing province data when that save is next loaded. The save will usually still open, but this is not a supported path and you should expect a wall of red text.
+Removing it from an in-progress save logs errors about missing province data on next load; the save usually still opens, but this is not a supported path.
 
 ---
 
@@ -34,22 +34,29 @@ Removing it from an in-progress save will log errors about missing province data
 [list]
 [*] [b]Geographic Domain Mapping:[/b] Splits the world into dynamic provinces with clear, terrain-aware boundaries.
 [*] [b]Territorial Ownership:[/b] Factions own the ground they actually hold - a four-tier ladder from exclusive hold to loose claim, shaded on the map, with coastlines and mountains reading as real borders.
-[*] [b]Geography-Driven Faction Placement:[/b] Nations settle as contiguous territory, weighing established claim against resources and shying away from a rival's ground - one settlement per region, with intrusions costing goodwill.
-[*] [b]Territory and Population Overlays:[/b] Expandable world map modes for faction territory control and a population-density heatmap, running on Realistic Planets 2's bundled map-mode framework.
+[*] [b]Geography-Driven Faction Placement:[/b] Nations settle as contiguous territory, weighing established claim against resources and shying away from a rival's ground - one settlement per region, with intrusions costing goodwill, and squaring their domains off rather than spidering.
+[*] [b]Regional Demographics (new in 0.2.0):[/b] Every region carries a deterministic demographic profile across seven axes - age structure, sex ratio, xenotype castes, ideoligions, wealth, education and employment - derived from the factions pressing on it, their tech and beliefs, and the land itself. Nothing is stored in your save.
+[*] [b]Demographic Map Overlays:[/b] Seven world-map overlays, one per axis, alongside faction territory and the population-density heatmap - all running on Realistic Planets 2's bundled map-mode framework. The expanded region panel shows the full breakdown.
 [*] [b]One-Click Overlay Toggles:[/b] Region borders and the Territories / Dwellings map modes each get their own toggle icon in the world-view controls - no digging through menus.
-[*] [b]Regional Demographics:[/b] Every region carries a deterministic population and belief distribution that shapes where settlements press outward.
+[*] [b]Hooks for Other Mods:[/b] War and drafting mods can skew a region's sex ratio (drafts in progress, combat losses with generational recovery); expansion mods can rank territory with the same compactness metric core uses.
 [*] [b]Procedural Trade Infrastructure:[/b] Links settlements with trade roads and places historical ruins across the world map.
 [/list]
 
 ---
 
-[h2]Changelog (v0.1.0) - Migration and Rebrand[/h2]
+[h2]Changelog (v0.2.1) - Hotfix[/h2]
 [list]
-[*] [b]New identity:[/b] Regions and Societies is the continuation of Regions and Territories (v0.8.0) under a new identity and packageId ([b]RegionsAndSocieties.CoreRP2[/b] for this edition). It installs as a NEW mod: it does not update the old mod in place, and saves made with the old packageId are not migrated.
-[*] [b]Compatibility model inverted:[/b] core no longer carries foreign-mod adapter profiles. Support for Empire, World Domination, Vanilla Factions Expanded and Vanilla Outposts Expanded moves to dedicated companion compatibility patches (released separately), each binding its target mod directly; core provides the adapter registration API they plug into.
-[*] [b]Two editions, unchanged:[/b] Map Mode Framework and Realistic Planets 2 (this one).
-[*] [b]Overlay toggles:[/b] region borders and the Territories / Dwellings map modes are toggled directly from the world-view controls. Under Realistic Planets 2 these icons are the border overlay's home, since RP2's framework fork does not carry the settings panel the standard edition uses.
-[*] [b]Release provenance:[/b] every release now ships a CHECKSUMS.sha256 manifest recording its exact binaries, generated from the final build at cut time.
+[*] Fixed: the in-game debug actions menu (dev mode) failed to open while the mod was installed. A debug action carried a parameter, which RimWorld cannot bind, so building the menu threw and it never opened. Removed the offending action; the menu now opens normally. No gameplay or save changes.
+[/list]
+
+[h2]Changelog (v0.2.0) - Regional Demographics[/h2]
+[list]
+[*] [b]Seven demographic axes per region[/b], each with a map overlay, region-panel breakdown and public endpoint: age structure (tech-level pyramids, natalist memes, longevity genes), sex ratio, xenotype castes, ideoligion shares with neighbour belief-similarity, wealth/SES tiers (terrain richness and trade roads count), education tiers, and an occupation mix with employment rate.
+[*] [b]Derived, never stored:[/b] everything is computed on read from the world seed - deterministic on every machine, nothing added to the save file.
+[*] [b]Honest DLC degradation:[/b] without Biotech the xenotype overlay says "all Baseliner"; without Ideology every region is secular - no flat map pretending to be data.
+[*] [b]DemographicHooks API:[/b] companion mods report drafts in progress (transient sex-ratio skew) or combat losses (a generational scar recovering over a configurable number of years, default 15, slider provided).
+[*] [b]Territory compactness:[/b] faction domains square off instead of spidering, tunable with a new slider; expansion mods can rank candidate provinces with the same public metric.
+[*] [b]Dwellings readout:[/b] the population tooltip answers for every habitable tile (zero included) as a compass block of the tile and its neighbours.
 [/list]
 [b]Full version history:[/b] [url=https://github.com/Regions-and-societies/Core-MMF/wiki/Changelog]github.com/Regions-and-societies/Core-MMF/wiki[/url]
 

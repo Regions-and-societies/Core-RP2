@@ -427,13 +427,18 @@ namespace RegionsAndSocieties.Patches
                                 suitability += GetTribalBetweennessBonus(p, placedBases, worldGrid);
                             }
 
-                            if (suitability <= -9999f) return new { Province = p, Score = -9999f, BarrierCount = 0, ClaimRaw = -9999 };
+                            if (suitability <= -9999f) return new { Province = p, Score = -9999f, BarrierCount = 0, ClaimRaw = -9999, Embeddedness = 0f };
 
-                            int sharedBorders = 0, rivalClaimNeighbours = 0;
+                            int sharedBorders = 0, rivalClaimNeighbours = 0, claimableBorders = 0;
                             if (p.borderShares != null)
                             {
                                 foreach (int nid in p.borderShares.Keys)
                                 {
+                                    // Land-type neighbours are the borders anyone could ever claim (#19);
+                                    // ocean/range neighbours are geography's free wall and stay out of the
+                                    // embeddedness denominator. Still O(neighbours) — no tile walks (#65).
+                                    var np = regionManager.GetProvince(nid);
+                                    if (np != null && np.provinceType == ProvinceType.Land) claimableBorders++;
                                     if (factionProvinceIds.Contains(nid)) sharedBorders++;
                                     if (rivalClaimedProvinceIds.Contains(nid)) rivalClaimNeighbours++;
                                 }
@@ -445,8 +450,9 @@ namespace RegionsAndSocieties.Patches
                             // not a border a 5500-year-old world would draw.
                             int claimRaw = sharedBorders - rivalClaimNeighbours - (rivalClaimsSelf ? 2 : 0);
                             int barrierCount = barrierCountByProvince.TryGetValue(p.id, out var bc) ? bc : 0;
+                            float embeddedness = Placement.CompactnessRules.Embeddedness(sharedBorders, claimableBorders);
 
-                            return new { Province = p, Score = suitability, BarrierCount = barrierCount, ClaimRaw = claimRaw };
+                            return new { Province = p, Score = suitability, BarrierCount = barrierCount, ClaimRaw = claimRaw, Embeddedness = embeddedness };
                         })
                         .Where(x => x.Score > -9999f);
 
@@ -470,8 +476,20 @@ namespace RegionsAndSocieties.Patches
 
                         float Norm(float v, float lo, float hi) => hi > lo ? (v - lo) / (hi - lo) : 1f;
 
+                        // #19: bend the blended score by shape — a candidate below the desired
+                        // embeddedness ratio keeps only a fraction of its score, so growth fills the
+                        // domain's pockets before extending tendrils. Only once the faction holds ground:
+                        // a first foothold has nothing to square against (and must not hand islands, whose
+                        // coastline is all free wall, an unearned full score). Weight 0 = the pure #65 blend.
+                        bool hasGround = factionProvinceIds.Count > 0;
                         chosenProvince = candidatesList
-                            .OrderByDescending(x => 0.70f * Norm(x.ClaimRaw, minClaim, maxClaim) + 0.30f * Norm(x.Score, minRes, maxRes))
+                            .OrderByDescending(x => {
+                                float blended = 0.70f * Norm(x.ClaimRaw, minClaim, maxClaim) + 0.30f * Norm(x.Score, minRes, maxRes);
+                                return hasGround
+                                    ? Placement.CompactnessRules.EffectiveScore(blended, x.Embeddedness,
+                                        Placement.CompactnessRules.DefaultDesiredRatio, FactionPlacementSettings.territoryCompactness)
+                                    : blended;
+                            })
                             .ThenByDescending(x => x.BarrierCount)
                             .First().Province;
                     }
@@ -642,25 +660,6 @@ namespace RegionsAndSocieties.Patches
             public float PopRetention;
         }
 
-        private static bool IsProvinceAdjacentToAny(GeographicProvince p, List<GeographicProvince> existing, SynapseRegionManager manager, WorldGrid worldGrid)
-        {
-            List<RimWorld.Planet.PlanetTile> neighbors = new List<RimWorld.Planet.PlanetTile>();
-            foreach (int tile in p.tiles)
-            {
-                neighbors.Clear();
-                worldGrid.GetTileNeighbors(tile, neighbors);
-                foreach (var n in neighbors)
-                {
-                    int neighborProvinceId = manager.GetProvinceId(n.tileId);
-                    if (neighborProvinceId != -1 && existing.Any(ep => ep.id == neighborProvinceId))
-                    {
-                        return true;
-                    }
-                }
-            }
-            return false;
-        }
-
         private static float GetProvinceDistance(GeographicProvince p1, GeographicProvince p2, WorldGrid worldGrid)
         {
             if (p1.tiles.Count == 0 || p2.tiles.Count == 0) return 9999f;
@@ -678,30 +677,6 @@ namespace RegionsAndSocieties.Patches
             if (faction.def.techLevel == TechLevel.Industrial) return 1;
             if (faction.def.techLevel >= TechLevel.Spacer) return 3;
             return 4; // Tribal
-        }
-
-        private static int GetSharedBorderCount(GeographicProvince p, List<GeographicProvince> existing, SynapseRegionManager manager, WorldGrid worldGrid)
-        {
-            HashSet<int> sharedAdjacentProvinces = new HashSet<int>();
-            List<RimWorld.Planet.PlanetTile> neighbors = new List<RimWorld.Planet.PlanetTile>();
-            foreach (int tile in p.tiles)
-            {
-                neighbors.Clear();
-                worldGrid.GetTileNeighbors(tile, neighbors);
-                foreach (var n in neighbors)
-                {
-                    int neighborProvinceId = manager.GetProvinceId(n.tileId);
-                    if (neighborProvinceId != -1 && neighborProvinceId != p.id)
-                    {
-                        var matchingProv = existing.FirstOrDefault(ep => ep.id == neighborProvinceId);
-                        if (matchingProv != null)
-                        {
-                            sharedAdjacentProvinces.Add(matchingProv.id);
-                        }
-                    }
-                }
-            }
-            return sharedAdjacentProvinces.Count;
         }
 
         // #65: distinct neighbour provinces where some RIVAL (not this faction) already holds at least a

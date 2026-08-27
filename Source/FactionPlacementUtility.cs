@@ -116,12 +116,16 @@ namespace RegionsAndSocieties
 
             // Select best province — excluding provinces occupied by a settlement and (as of #65) those
             // a rival loose-owns (>=51%), so NPC placement stops at rival borders instead of interleaving.
+            // Shape matters here (#19): suitability is bent by how embedded the candidate is in the
+            // faction's existing domain, so growth fills pockets before it extends tendrils. The old sort
+            // used only a binary touches-at-all flag — it computed shared borders and then ignored them,
+            // which is exactly where spidering territories came from.
+            var heldIds = new HashSet<int>(factionProvinces.Select(fp => fp.id));
             var candidates = allProvinces
                 .Where(p => !occupiedProvinces.Contains(p) && provinceScores.ContainsKey(p) && !RegionalOwnershipUtility.IsLooseOwnedByRival(p, faction))
                 .Select(p => {
                     float suitability = provinceScores[p];
-                    bool isAdjacent = factionProvinces.Any() && IsProvinceAdjacentToAny(p, factionProvinces, regionManager, worldGrid);
-                    
+
                     float minAllyDist = 9999f;
                     if (factionProvinces.Any())
                     {
@@ -132,26 +136,31 @@ namespace RegionsAndSocieties
                         }
                     }
 
-                    int sharedBorders = factionProvinces.Any() ? GetSharedBorderCount(p, factionProvinces, regionManager, worldGrid) : 0;
-                    int barrierCount = GetBarrierBorderCount(p, worldGrid);
+                    TerritoryCompactnessUtility.CountBorders(p, heldIds, regionManager, worldGrid, out int owned, out int claimable);
+                    bool isAdjacent = owned > 0;
+                    float embeddedness = Placement.CompactnessRules.Embeddedness(owned, claimable);
+                    float effective = Placement.CompactnessRules.EffectiveScore(
+                        suitability, embeddedness,
+                        Placement.CompactnessRules.DefaultDesiredRatio,
+                        FactionPlacementSettings.territoryCompactness);
 
-                    return new { Province = p, Score = suitability, IsAdjacent = isAdjacent, Dist = minAllyDist, SharedBorders = sharedBorders, BarrierCount = barrierCount };
+                    return new { Province = p, Score = suitability, Effective = effective, IsAdjacent = isAdjacent, Dist = minAllyDist };
                 })
                 .ToList();
 
             if (!candidates.Any()) return -1;
 
-            // Sort candidates: favor adjacent first if we have existing provinces, otherwise suitablity
+            // Sort candidates: adjacent first if we have existing provinces, then the shape-bent score.
             var sorted = candidates.AsEnumerable();
             if (factionProvinces.Any())
             {
                 sorted = sorted.OrderByDescending(x => x.IsAdjacent ? 1 : 0)
-                               .ThenByDescending(x => x.Score)
+                               .ThenByDescending(x => x.Effective)
                                .ThenBy(x => x.Dist);
             }
             else
             {
-                sorted = sorted.OrderByDescending(x => x.Score);
+                sorted = sorted.OrderByDescending(x => x.Score);   // first foothold: shape has nothing to square against
             }
 
             var candidatesList = sorted.ToList();
@@ -159,73 +168,10 @@ namespace RegionsAndSocieties
             return FindBestTileInProvince(chosenProvince, sameFactionBases, allPlacedBases, tileScores, worldGrid);
         }
 
-        private static bool IsProvinceAdjacentToAny(GeographicProvince p, List<GeographicProvince> existing, SynapseRegionManager manager, WorldGrid worldGrid)
-        {
-            List<RimWorld.Planet.PlanetTile> neighbors = new List<RimWorld.Planet.PlanetTile>();
-            foreach (int tile in p.tiles)
-            {
-                neighbors.Clear();
-                worldGrid.GetTileNeighbors(tile, neighbors);
-                foreach (var n in neighbors)
-                {
-                    int neighborProvinceId = manager.GetProvinceId(n.tileId);
-                    if (neighborProvinceId != -1 && existing.Any(ep => ep.id == neighborProvinceId))
-                    {
-                        return true;
-                    }
-                }
-            }
-            return false;
-        }
-
         private static float GetProvinceDistance(GeographicProvince p1, GeographicProvince p2, WorldGrid worldGrid)
         {
             if (p1.tiles.Count == 0 || p2.tiles.Count == 0) return 9999f;
             return worldGrid.ApproxDistanceInTiles(p1.tiles[0], p2.tiles[0]);
-        }
-
-        private static int GetSharedBorderCount(GeographicProvince p, List<GeographicProvince> existing, SynapseRegionManager manager, WorldGrid worldGrid)
-        {
-            HashSet<int> sharedAdjacentProvinces = new HashSet<int>();
-            List<RimWorld.Planet.PlanetTile> neighbors = new List<RimWorld.Planet.PlanetTile>();
-            foreach (int tile in p.tiles)
-            {
-                neighbors.Clear();
-                worldGrid.GetTileNeighbors(tile, neighbors);
-                foreach (var n in neighbors)
-                {
-                    int neighborProvinceId = manager.GetProvinceId(n.tileId);
-                    if (neighborProvinceId != -1 && neighborProvinceId != p.id)
-                    {
-                        var matchingProv = existing.FirstOrDefault(ep => ep.id == neighborProvinceId);
-                        if (matchingProv != null)
-                        {
-                            sharedAdjacentProvinces.Add(matchingProv.id);
-                        }
-                    }
-                }
-            }
-            return sharedAdjacentProvinces.Count;
-        }
-
-        private static int GetBarrierBorderCount(GeographicProvince p, WorldGrid worldGrid)
-        {
-            int barrierCount = 0;
-            List<RimWorld.Planet.PlanetTile> neighbors = new List<RimWorld.Planet.PlanetTile>();
-            foreach (int tile in p.tiles)
-            {
-                neighbors.Clear();
-                worldGrid.GetTileNeighbors(tile, neighbors);
-                foreach (var n in neighbors)
-                {
-                    Tile nTile = worldGrid[n.tileId];
-                    if (nTile.hilliness == Hilliness.Impassable || nTile.WaterCovered || (nTile.PrimaryBiome != null && nTile.PrimaryBiome.impassable))
-                    {
-                        barrierCount++;
-                    }
-                }
-            }
-            return barrierCount;
         }
 
         public static float EvaluatePopulationRetention(int startTileId, HashSet<int> provinceTiles)

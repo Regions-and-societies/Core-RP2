@@ -299,15 +299,12 @@ namespace RegionsAndSocieties.UI
             Log.Message(RegionDebugReports.SettlementPlacementCheck(tileId));
         }
 
-        [DebugAction("Regions and Societies", "R&S: ownership derivation for province (id=z*250+x)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
-        private static void OwnershipDerivationForProvince(IntVec3 c)
-        {
-            // Headless province targeting. run_debug_action passes an IntVec3, and the bridge bounds-
-            // checks it against the (map-sized) grid — so a province id larger than the map width can't
-            // ride in x alone. Decode it from both axes: id = z*250 + x. Caller: x=id%250, z=id/250.
-            int provinceId = c.z * 250 + c.x;
-            Log.Message(RegionDebugReports.OwnershipDerivationForProvinceId(provinceId));
-        }
+        // A [DebugAction] method MUST be parameterless. LudeonTK builds the debug actions menu by
+        // binding every Action-type action with Delegate.CreateDelegate(typeof(Action), method), which
+        // throws for a method with parameters — inside the Dialog_Debug constructor, so the ENTIRE debug
+        // actions menu fails to open for anyone with the mod installed. The old IntVec3 province-id
+        // helper here is removed; use the parameterless "R&S: ownership derivation (#69)" (selected
+        // tile) instead. Never give a [DebugAction] method a parameter.
 
         /// <summary>
         /// #77 validation. The demographic pressure field is surface-only; before the fix an off-surface or

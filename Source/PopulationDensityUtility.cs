@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using RimWorld;
 using RimWorld.Planet;
 using Verse;
@@ -107,7 +108,7 @@ namespace RegionsAndSocieties
             for (int i = 0; i < count; i++)
             {
                 Tile tileData = Find.WorldGrid[i];
-                if (tileData.WaterCovered || tileData.hilliness == Hilliness.Impassable || tileData.PrimaryBiome == null || tileData.PrimaryBiome.impassable || tileData.PrimaryBiome.defName == "SeaIce")
+                if (!IsHabitable(tileData))
                 {
                     continue;
                 }
@@ -295,6 +296,90 @@ namespace RegionsAndSocieties
             EnsureCache();
             if (cachedTileSourcePopulations == null || targetTile < 0 || targetTile >= cachedTileSourcePopulations.Length) return 0;
             return cachedTileSourcePopulations[targetTile];
+        }
+
+        /// <summary>Whether pawns could dwell on this tile at all: land, passable, a survivable biome.</summary>
+        public static bool IsHabitableTile(int tileId)
+        {
+            if (Find.WorldGrid == null || tileId < 0 || tileId >= Find.WorldGrid.TilesCount) return false;
+            return IsHabitable(Find.WorldGrid[tileId]);
+        }
+
+        private static bool IsHabitable(Tile tileData)
+        {
+            return tileData != null
+                && !tileData.WaterCovered
+                && tileData.hilliness != Hilliness.Impassable
+                && tileData.PrimaryBiome != null
+                && !tileData.PrimaryBiome.impassable
+                && tileData.PrimaryBiome.defName != "SeaIce";
+        }
+
+        // Slot order matches a heading of 0 = due north, walked clockwise in 45-degree steps.
+        private static readonly string[] CompassNames = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
+
+        // The display is asked for every GUI frame while a tile is hovered or selected, so the last
+        // answer is kept; CacheVersion already changes whenever the underlying populations can.
+        private static int displayCachedTileId = -1;
+        private static int displayCachedVersion = -1;
+        private static string displayCachedText;
+
+        /// <summary>
+        /// The dwellings on a tile and on each of its neighbours, laid out as a small compass block
+        /// with the asked-about tile bolded in the centre. Every habitable tile gets an answer, zero
+        /// included; tiles nobody could dwell on (ocean, ice, impassable) return null, and such
+        /// neighbours show "-" so the block keeps its shape at a coastline.
+        /// </summary>
+        public static string GetDwellingsDisplay(int tileId)
+        {
+            if (!IsHabitableTile(tileId)) return null;
+
+            EnsureCache();
+            if (tileId == displayCachedTileId && displayCachedVersion == CacheVersion && displayCachedText != null)
+            {
+                return displayCachedText;
+            }
+
+            string[] slots = new string[8];
+            var neighbors = new List<PlanetTile>();
+            Find.WorldGrid.GetTileNeighbors(tileId, neighbors);
+            foreach (var neighbor in neighbors)
+            {
+                float heading = Find.WorldGrid.GetHeadingFromTo(tileId, neighbor);
+                int slot = ((int)UnityEngine.Mathf.Round(heading / 45f)) % 8;
+                if (slot < 0) slot += 8;
+
+                string value = IsHabitable(Find.WorldGrid[neighbor.tileId])
+                    ? GetSourcePopulationAtTile(neighbor.tileId).ToString()
+                    : "-";
+                // Two neighbours can round to the same compass point on the icosahedral grid; show both.
+                slots[slot] = slots[slot] == null ? value : slots[slot] + "/" + value;
+            }
+
+            var sb = new StringBuilder();
+            sb.AppendLine("Pawn dwellings");
+            AppendCompassRow(sb, CompassCell(slots, 7), CompassCell(slots, 0), CompassCell(slots, 1));
+            AppendCompassRow(sb, CompassCell(slots, 6), "<b>Here " + GetSourcePopulationAtTile(tileId) + "</b>", CompassCell(slots, 2));
+            AppendCompassRow(sb, CompassCell(slots, 5), CompassCell(slots, 4), CompassCell(slots, 3));
+
+            displayCachedTileId = tileId;
+            displayCachedVersion = CacheVersion;
+            displayCachedText = sb.ToString().TrimEnd();
+            return displayCachedText;
+        }
+
+        private static string CompassCell(string[] slots, int slot)
+        {
+            return slots[slot] == null ? null : CompassNames[slot] + " " + slots[slot];
+        }
+
+        private static void AppendCompassRow(StringBuilder sb, string left, string middle, string right)
+        {
+            bool any = false;
+            if (left != null) { sb.Append(left); any = true; }
+            if (middle != null) { if (any) sb.Append("   "); sb.Append(middle); any = true; }
+            if (right != null) { if (any) sb.Append("   "); sb.Append(right); any = true; }
+            if (any) sb.AppendLine();
         }
 
         public static int GetSettlementPopulation(Settlement settlement)

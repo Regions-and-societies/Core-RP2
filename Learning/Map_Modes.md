@@ -1,8 +1,8 @@
 # Map Modes
 
-This mod ships three world-map overlays, drawn through the **Map Mode Framework**. That framework is a hard dependency — without it the overlays do not draw at all.
+This mod ships its world-map overlays through the **Map Mode Framework**. That framework is a hard dependency — without it the overlays do not draw at all.
 
-Switch between them with the map mode selector on the world view. On top of the modes, an owner-coloured **region-border overlay** can be drawn over any map mode (toggled from the Draw Settings panel or the mod settings), and faction **capital markers** flag each faction's principal settlement.
+Switch between them with the map mode selector on the world view (the Regions and Societies group button lists them all). On top of the modes, an owner-coloured **region-border overlay** can be drawn over any map mode (toggled from the Draw Settings panel or the mod settings), and faction **capital markers** flag each faction's principal settlement.
 
 ---
 
@@ -33,6 +33,20 @@ A gradient showing where people actually are, propagated outward from settlement
 This is the layer that feeds population-derived figures elsewhere in the suite, so if a settlement tier or a density-based number looks wrong, this overlay is where to check the input.
 
 Useful when: choosing where to settle, or working out why one region feels busier than another.
+
+---
+
+## Demographic overlays (0.2.0)
+
+Seven overlays, one per demographic axis, each shading every **settled** region (unsettled wilderness and water stay unshaded — an unshaded region means "no people", not "no data"). Hovering a tile shows that axis's full breakdown for the region; the same numbers appear in the expanded region panel.
+
+- **Age structure** — median age, youthful green through mature yellow to elderly red. A tribal region reads young; a long-lived spacer caste reads old.
+- **Sex ratio** — blue where men outnumber women, magenta the reverse, faint neutral where even. The baseline is genuinely near-even, so a mostly-neutral map is honest data; colour appears where a mod-driven skew (a draft, a war's losses) is in force.
+- **Xenotypes** — each region tinted by its dominant Biotech caste in a colour stable for that xenotype, darker where the caste dominates more strongly. Requires Biotech; without it the tooltip states "all Baseliner" and the map stays unshaded.
+- **Ideology** — each region tinted by its dominant ideoligion in that ideo's own colour, darker where belief is more uniform. The tooltip lists the top ideoligions and the region's belief similarity to its neighbours. Requires the Ideology DLC; without it every region is secular and says so.
+- **Wealth** — the socioeconomic index, deep red (subsistence) to green (affluent).
+- **Education** — the attainment index, brown (unschooled) to blue (highly educated).
+- **Employment** — each region tinted by its dominant occupation sector: green agriculture, steel industry, red military, gold trade.
 
 ---
 

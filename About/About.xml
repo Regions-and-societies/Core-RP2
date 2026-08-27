@@ -4,7 +4,7 @@
     <author>Regions and Societies Team</author>
     <packageId>RegionsAndSocieties.CoreRP2</packageId>
     <url>https://github.com/Regions-and-societies/Core-RP2</url>
-    <modVersion>0.1.0</modVersion>
+    <modVersion>0.2.1</modVersion>
     <supportedVersions>
         <li>1.6</li>
     </supportedVersions>
@@ -40,7 +40,7 @@
     </loadAfter>
     <description>
 Discord Community: https://discord.gg/eVBebZ2N9s
-Version: v0.1.0 (Target: RimWorld 1.6)
+Version: v0.2.1 (Target: RimWorld 1.6)
 
 Regions and Societies — Realistic Planets 2 edition
 Official Wiki and Documentation: https://github.com/Regions-and-societies/Core-MMF/wiki
@@ -52,10 +52,12 @@ Regions and Societies overhauls the world map into living geography: dynamic geo
 Features:
 - Geographic Domain Mapping: splits the world into dynamic provinces with clear, terrain-aware boundaries.
 - Territorial Ownership: a four-tier ladder from exclusive hold to loose claim, shaded on the map, with coastlines and mountains reading as real borders.
-- Geography-Driven Faction Placement: nations settle as contiguous territory, one settlement per region, weighing established claim against resources and shying away from rivals' ground.
-- Territory and Population Overlays: expandable world map modes for faction territory and population density.
+- Geography-Driven Faction Placement: nations settle as contiguous territory, one settlement per region, weighing established claim against resources, shying away from rivals' ground, and squaring their domains off rather than spidering.
+- Regional Demographics: every region carries a deterministic demographic profile - age structure, sex ratio, xenotypes, ideoligions, wealth, education and employment - derived from the factions pressing on it, their tech and beliefs, and the land itself. Nothing is stored in your save.
+- Demographic Map Overlays: seven world-map overlays, one per axis, plus faction territory and population density, running on Realistic Planets 2's bundled map-mode framework.
+- Region Panel Breakdown: the expanded region readout shows the full demographic profile alongside ownership and economics.
 - One-Click Overlay Toggles: region borders and the Territories / Dwellings map modes each get their own toggle icon in the world-view controls.
-- Regional Demographics: every region carries a deterministic population and belief distribution that shapes where settlements press outward.
+- Hooks for Other Mods: a public API lets war and drafting mods skew a region's sex ratio (drafts, combat losses) with generational recovery, and lets expansion mods rank territory the way core does.
 - Procedural Trade Infrastructure: trade roads between settlements and historical ruins across the world map.
 
 *** BEST ON A NEW COLONY - EXISTING SAVES ARE SUPPORTED IN COMPATIBILITY MODE ***
@@ -63,12 +65,16 @@ A world generated with the mod installed gets everything, including placement ru
 
 Requires: Realistic Planets 2, Harmony
 
---- Changelog (v0.1.0) - Migration and Rebrand ---
-- Regions and Societies is the continuation of Regions and Territories (v0.8.0) under a new identity and packageId (RegionsAndSocieties.CoreRP2 for this edition). It installs as a NEW mod: it does not update the old mod in place, and saves made with the old packageId are not migrated.
-- Compatibility model inverted: core no longer carries foreign-mod adapter profiles. Support for Empire, World Domination, Vanilla Factions Expanded and Vanilla Outposts Expanded moves to dedicated companion compatibility patches (released separately), each binding its target mod directly; core provides the adapter registration API they plug into.
-- Two editions, unchanged: Map Mode Framework and Realistic Planets 2 (this one).
-- Overlay toggles: region borders and the Territories / Dwellings map modes are toggled directly from the world-view controls. Under Realistic Planets 2 these icons are the border overlay's home, since RP2's framework fork does not carry the settings panel the standard edition uses.
-- Release provenance: every release now ships a CHECKSUMS.sha256 manifest recording its exact binaries, generated from the final build at cut time.
+--- Changelog (v0.2.1) - Hotfix ---
+- Fixed: the in-game debug actions menu (dev mode) failed to open while the mod was installed. A debug action carried a parameter, which RimWorld cannot bind, so building the menu threw and it never opened. Removed the offending action; the menu now opens normally. No gameplay or save changes.
+
+--- Changelog (v0.2.0) - Regional Demographics ---
+- Seven demographic axes per region, each with a map overlay, region-panel breakdown and public endpoint: age structure (tech-level pyramids, natalist memes, longevity genes), sex ratio, xenotype castes, ideoligion shares with neighbour belief-similarity, wealth/SES tiers (terrain richness and trade roads count), education tiers, and an occupation mix with employment rate.
+- Everything is derived on read from the world seed - deterministic on every machine, nothing added to the save file.
+- Honest DLC degradation: without Biotech the xenotype overlay says "all Baseliner"; without Ideology every region is secular - no flat map pretending to be data.
+- DemographicHooks API: companion mods can report drafts in progress (transient sex-ratio skew) or combat losses (a generational scar recovering over a configurable number of years, default 15, slider provided).
+- Territory compactness: faction domains square off instead of spidering, tunable with a new slider; expansion mods can rank candidate provinces with the same public metric.
+- Dwellings readout: the population tooltip answers for every habitable tile (zero included) as a compass block of the tile and its neighbours.
 
 Source code: https://github.com/Regions-and-societies/Core-RP2
 Steam Workshop: https://steamcommunity.com/sharedfiles/filedetails/?id=3784666526
