@@ -2,6 +2,16 @@
 
 Full version history. The mod page and Workshop description show only the latest release; earlier versions are recorded here. Versions before 0.1.0 shipped under the former identity, **RimSynapse - Regions and Territories**, and are kept below as the predecessor's history.
 
+## v0.2.2 - Worldgen fixes and performance
+
+- **Fixed: black world on generate.** Faction generation built each faction's ideoligion without the faction context and planet layer vanilla supplies, and classic (no-expansion) ideoligion role naming crashed world generation — the planet never rendered. Generation now mirrors vanilla's own call exactly, and a per-faction guard degrades any future faction failure to a logged skip instead of a dead world.
+- **The player always has somewhere to land.** At small worlds or low coverage, NPC placement could claim every settleable province and the starting-site chooser found no valid tile. Placement now always leaves at least one settleable land province unclaimed.
+- **Worldgen performance at scale.** Terrain features are read from the world grid once instead of once per faction, and the tribal betweenness bonus no longer rebuilds its industrial-base map per candidate province — large planets (high planet scale, 100% coverage) generate dramatically faster.
+
+## v0.2.1 - Hotfix
+
+- **Fixed: the in-game debug actions menu (dev mode) failed to open while the mod was installed.** A debug action carried a parameter, which RimWorld cannot bind, so building the menu threw and it never opened. Removed the offending action. No gameplay or save changes.
+
 ## v0.2.0 - Regional Demographics
 
 Every region now carries a full demographic profile — seven axes, each deterministic from the world seed (nothing stored in the save), each with its own map overlay, a region-panel breakdown, and a public endpoint for other mods.

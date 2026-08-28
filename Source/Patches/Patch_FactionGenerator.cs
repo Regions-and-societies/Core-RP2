@@ -124,7 +124,7 @@ namespace RegionsAndSocieties.Patches
                 List<Faction> generatedFactions = new List<Faction>();
                 foreach (var def in finalDefs)
                 {
-                    Faction faction = FactionGenerator.NewGeneratedFaction(new FactionGeneratorParms(def, default(IdeoGenerationParms), true));
+                    Faction faction = TryGenerateFaction(layer, def);
                     if (faction != null)
                     {
                         factionManager.Add(faction);
@@ -136,7 +136,7 @@ namespace RegionsAndSocieties.Patches
                 {
                     if (def.hidden && factionManager.FirstFactionOfDef(def) == null)
                     {
-                        Faction faction = FactionGenerator.NewGeneratedFaction(new FactionGeneratorParms(def, default(IdeoGenerationParms), true));
+                        Faction faction = TryGenerateFaction(layer, def);
                         if (faction != null)
                         {
                             factionManager.Add(faction);
@@ -242,8 +242,16 @@ namespace RegionsAndSocieties.Patches
             // the per-faction counts computed above become only the relative distribution and are normalized
             // to hit the target. The floor of one base per faction keeps every faction on the map.
             int landProvinceCount = allProvinces.Count(p => p.provinceType == ProvinceType.Land);
+            // The player must always have somewhere to land: reserve at least one settleable land
+            // province (>=20 tiles, the same floor the province scorer applies) that NPC placement may
+            // never claim. At small worlds / low coverage the faction-count floor below could otherwise
+            // occupy every region, and the starting-site chooser errors out with no valid tile
+            // ("Failed to find faction base tile for PlayerColony").
+            int settleableLandProvinces = allProvinces.Count(p =>
+                p.provinceType == ProvinceType.Land && p.tiles != null && p.tiles.Count >= 20);
             int totalBasesAfterThreat = factionTargetBases.Values.Sum();
             int maxBasesAllowed = Mathf.Max(allNPCFactions.Count, Mathf.RoundToInt(landProvinceCount * FactionPlacementSettings.claimedLandAreaPercent));
+            maxBasesAllowed = Mathf.Min(maxBasesAllowed, Mathf.Max(0, settleableLandProvinces - PlayerReserveProvinces));
 
             if (totalBasesAfterThreat > 0 && totalBasesAfterThreat != maxBasesAllowed)
             {
@@ -303,6 +311,50 @@ namespace RegionsAndSocieties.Patches
                 barrierCountByProvince[bp.id] = GetBarrierBorderCount(bp, worldGrid);
             }
 
+            // Worldgen perf: per-tile terrain features do not depend on the faction, so read the world
+            // grid ONCE into compact arrays over the settleable-terrain tiles. The old code rebuilt a
+            // full Dictionary<int,float> from fresh grid reads for EVERY faction — O(factions × tiles)
+            // tile-object walks plus dictionary/GC churn — which made large RP2 planets (high planet
+            // scale, 100% coverage) crawl through worldgen. Per faction the score is now just a
+            // weighted sum over these arrays; only the temperature gate is per-faction.
+            var validTileIds = new List<int>();
+            var tileFeatures = new List<TileFeatures>();
+            for (int t = 0; t < totalTiles; t++)
+            {
+                Tile tileData = worldGrid[t];
+                if (tileData.WaterCovered || tileData.hilliness == Hilliness.Impassable ||
+                    (tileData.PrimaryBiome != null && (tileData.PrimaryBiome.impassable || tileData.PrimaryBiome.defName == "SeaIce")))
+                {
+                    continue;
+                }
+
+                float mineralVal = 0.5f;
+                if (tileData.hilliness == Hilliness.SmallHills) mineralVal = 1.0f;
+                else if (tileData.hilliness == Hilliness.LargeHills) mineralVal = 2.0f;
+                else if (tileData.hilliness == Hilliness.Mountainous) mineralVal = 3.0f;
+
+                float nutritionVal = tileData.PrimaryBiome != null ? tileData.PrimaryBiome.plantDensity : 0.5f;
+                float forageVal = tileData.PrimaryBiome != null ? tileData.PrimaryBiome.forageability : 0.5f;
+                float biomassVal = tileData.PrimaryBiome != null ? tileData.PrimaryBiome.TreeDensity : 0.5f;
+                float grazingVal = (tileData.hilliness == Hilliness.Flat) ? nutritionVal * 2f : nutritionVal;
+                float hospVal = nutritionVal * 2f + forageVal;
+
+                validTileIds.Add(t);
+                tileFeatures.Add(new TileFeatures
+                {
+                    Mineral = mineralVal,
+                    Nutrition = nutritionVal,
+                    Forage = forageVal,
+                    Grazing = grazingVal,
+                    Biomass = biomassVal,
+                    Margin = Mathf.Max(0f, 3.0f - hospVal),
+                    Temperature = tileData.temperature,
+                });
+            }
+
+            // One score array reused across factions; -9999 marks unsettleable-for-this-faction.
+            float[] tileScores = new float[totalTiles];
+
             foreach (var faction in alternatingFactions)
             {
                 var profile = FactionPlacementSettings.GetProfile(faction.def);
@@ -310,46 +362,31 @@ namespace RegionsAndSocieties.Patches
 
                 int baseCount = factionTargetBases.ContainsKey(faction) ? factionTargetBases[faction] : 5;
 
-                Dictionary<int, float> tileScores = new Dictionary<int, float>();
                 for (int t = 0; t < totalTiles; t++)
                 {
-                    Tile tileData = worldGrid[t];
-                    if (tileData.WaterCovered || tileData.hilliness == Hilliness.Impassable || (tileData.PrimaryBiome != null && (tileData.PrimaryBiome.impassable || tileData.PrimaryBiome.defName == "SeaIce")))
+                    tileScores[t] = -9999f;
+                }
+                for (int i = 0; i < validTileIds.Count; i++)
+                {
+                    TileFeatures f = tileFeatures[i];
+                    if (!faction.def.allowedArrivalTemperatureRange.Includes(f.Temperature))
                     {
-                        tileScores[t] = -9999f;
                         continue;
                     }
-
-                    if (!faction.def.allowedArrivalTemperatureRange.Includes(tileData.temperature))
-                    {
-                        tileScores[t] = -9999f;
-                        continue;
-                    }
-
-                    float mineralVal = 0.5f;
-                    if (tileData.hilliness == Hilliness.SmallHills) mineralVal = 1.0f;
-                    else if (tileData.hilliness == Hilliness.LargeHills) mineralVal = 2.0f;
-                    else if (tileData.hilliness == Hilliness.Mountainous) mineralVal = 3.0f;
-
-                    float nutritionVal = tileData.PrimaryBiome != null ? tileData.PrimaryBiome.plantDensity : 0.5f;
-                    float forageVal = tileData.PrimaryBiome != null ? tileData.PrimaryBiome.forageability : 0.5f;
-                    float biomassVal = tileData.PrimaryBiome != null ? tileData.PrimaryBiome.TreeDensity : 0.5f;
-                    float grazingVal = (tileData.hilliness == Hilliness.Flat) ? nutritionVal * 2f : nutritionVal;
-                    float hospVal = nutritionVal * 2f + forageVal;
 
                     float score = 0f;
-                    score += profile.mineralWeight * mineralVal;
-                    score += profile.nutritionWeight * nutritionVal;
-                    score += profile.forageWeight * forageVal;
-                    score += profile.grazingWeight * grazingVal;
-                    score += profile.huntingWeight * biomassVal;
+                    score += profile.mineralWeight * f.Mineral;
+                    score += profile.nutritionWeight * f.Nutrition;
+                    score += profile.forageWeight * f.Forage;
+                    score += profile.grazingWeight * f.Grazing;
+                    score += profile.huntingWeight * f.Biomass;
 
                     if (profile.marginWeight > 0f)
                     {
-                        score += profile.marginWeight * Mathf.Max(0f, 3.0f - hospVal);
+                        score += profile.marginWeight * f.Margin;
                     }
 
-                    tileScores[t] = score;
+                    tileScores[validTileIds[i]] = score;
                 }
 
                 Dictionary<GeographicProvince, float> provinceScores = new Dictionary<GeographicProvince, float>();
@@ -367,7 +404,7 @@ namespace RegionsAndSocieties.Patches
                         continue;
                     }
 
-                    var validTiles = p.tiles.Where(t => tileScores.ContainsKey(t) && tileScores[t] > -9999f).ToList();
+                    var validTiles = p.tiles.Where(t => tileScores[t] > -9999f).ToList();
                     if (validTiles.Count == 0)
                     {
                         provinceScores[p] = -9999f;
@@ -410,8 +447,25 @@ namespace RegionsAndSocieties.Patches
                     }
                 }
 
+                // Betweenness inputs are static during THIS faction's placement: industrial bases only
+                // change when an industrial faction places, and the bonus only applies to sub-industrial
+                // factions — so build the industrial-base map ONCE per faction. The old code rebuilt it
+                // per candidate province per base, with a linear settlement scan per placed base inside;
+                // that term grew with the square of settlement count and dominated worldgen at high
+                // density settings.
+                Dictionary<string, List<int>> tribalIndustrialBases =
+                    faction.def.techLevel < TechLevel.Industrial ? BuildIndustrialBasesByFaction(placedBases) : null;
+
                 for (int b = 0; b < baseCount; b++)
                 {
+                    // Hard guarantee behind the reserve in maxBasesAllowed: the per-faction floors
+                    // (every faction keeps at least one base) can override the normalized cap, so also
+                    // stop placing outright once only the player's reserve remains unclaimed.
+                    if (settleableLandProvinces - occupiedProvinces.Count <= PlayerReserveProvinces)
+                    {
+                        break;
+                    }
+
                     GeographicProvince chosenProvince = null;
                     string factionId = faction.GetUniqueLoadID();
                     var factionProvinceIds = new HashSet<int>(factionProvinces.Select(fp => fp.id));
@@ -422,9 +476,9 @@ namespace RegionsAndSocieties.Patches
                         .Where(p => !occupiedProvinces.Contains(p))
                         .Select(p => {
                             float suitability = provinceScores.ContainsKey(p) ? provinceScores[p] : -9999f;
-                            if (suitability > -9999f && faction.def.techLevel < TechLevel.Industrial)
+                            if (suitability > -9999f && tribalIndustrialBases != null)
                             {
-                                suitability += GetTribalBetweennessBonus(p, placedBases, worldGrid);
+                                suitability += GetTribalBetweennessBonus(p, tribalIndustrialBases, worldGrid);
                             }
 
                             if (suitability <= -9999f) return new { Province = p, Score = -9999f, BarrierCount = 0, ClaimRaw = -9999, Embeddedness = 0f };
@@ -560,10 +614,46 @@ namespace RegionsAndSocieties.Patches
             return false;
         }
 
-        private static int FindBestTileInProvince(GeographicProvince province, List<int> sameFactionBases, List<int> allPlacedBases, Dictionary<int, float> tileScores, WorldGrid worldGrid)
+        /// <summary>
+        /// Generate one faction the way vanilla world-gen does — carrying the <see cref="FactionDef"/>
+        /// through as the ideo's <c>forFaction</c> context — and never let a single faction's failure
+        /// abort the whole world-generation step.
+        ///
+        /// <para>The old code passed <c>default(IdeoGenerationParms)</c>, i.e. <c>forFaction = null</c>,
+        /// stripping the faction/culture context that classic (no-expansion) ideoligion role-name
+        /// generation relies on. Under the wrong Ideology mode a null there throws deep in
+        /// <c>Precept_Role.GenerateNameRaw</c>; because this replaces vanilla's
+        /// <c>GenerateFactionsIntoWorldLayer</c> entirely (the prefix returns false), an uncaught throw
+        /// kills the <c>WorldGenStep</c> and leaves the player staring at an unrendered ("black") world.
+        /// Building proper parms addresses the root; the try/catch is defence in depth so any future
+        /// faction-gen throw degrades to a skipped, logged faction rather than a dead world.</para>
+        /// </summary>
+        private static Faction TryGenerateFaction(PlanetLayer layer, FactionDef def)
         {
+            try
+            {
+                // Mirror vanilla's own generation call as closely as possible so classic (no-expansion)
+                // ideoligion role-name generation resolves with the context it expects:
+                //   • forFaction = def gives ideo/culture selection the faction context (vanilla always
+                //     carries it; passing default(IdeoGenerationParms) left it null);
+                //   • the PLANET-LAYER overload matches vanilla's InitializeFactions path exactly — we
+                //     were calling the layer-less NewGeneratedFaction(parms), which generates the faction
+                //     (and its ideo) without the world-layer context the layered 1.6 path sets up.
+                var ideoParms = new IdeoGenerationParms { forFaction = def };
+                return FactionGenerator.NewGeneratedFaction(layer, new FactionGeneratorParms(def, ideoParms, true));
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"[RegionsAndSocieties] Skipped faction '{def?.defName ?? "null"}' — generation threw and would otherwise abort world generation: {ex}");
+                return null;
+            }
+        }
+
+        private static int FindBestTileInProvince(GeographicProvince province, List<int> sameFactionBases, List<int> allPlacedBases, float[] tileScores, WorldGrid worldGrid)
+        {
+            var placedSet = new HashSet<int>(allPlacedBases);
             var candidateTiles = province.tiles
-                .Where(t => tileScores.ContainsKey(t) && tileScores[t] > -9999f && !allPlacedBases.Contains(t))
+                .Where(t => tileScores[t] > -9999f && !placedSet.Contains(t))
                 .ToList();
 
             if (!candidateTiles.Any()) return -1;
@@ -660,6 +750,23 @@ namespace RegionsAndSocieties.Patches
             public float PopRetention;
         }
 
+        /// <summary>Faction-independent terrain features of one settleable tile, read from the world
+        /// grid once per worldgen so the per-faction scoring pass never re-walks tile objects.</summary>
+        private struct TileFeatures
+        {
+            public float Mineral;
+            public float Nutrition;
+            public float Forage;
+            public float Grazing;
+            public float Biomass;
+            public float Margin;       // Mathf.Max(0, 3 - hospitability), the marginal-land preference input
+            public float Temperature;
+        }
+
+        /// <summary>Settleable land provinces NPC placement must always leave unclaimed so the player
+        /// has somewhere to land.</summary>
+        private const int PlayerReserveProvinces = 1;
+
         private static float GetProvinceDistance(GeographicProvince p1, GeographicProvince p2, WorldGrid worldGrid)
         {
             if (p1.tiles.Count == 0 || p2.tiles.Count == 0) return 9999f;
@@ -754,27 +861,36 @@ namespace RegionsAndSocieties.Patches
             return UnityEngine.Random.Range(1f, 2f); // Tribal / default
         }
 
-        private static float GetTribalBetweennessBonus(GeographicProvince p, List<int> allPlacedBases, WorldGrid worldGrid)
+        /// <summary>The placed NPC bases that belong to Industrial factions, keyed by faction, for the
+        /// tribal betweenness bonus. One settlement pass with a placed-tile set — built once per faction
+        /// (the industrial set cannot change while a sub-industrial faction places its own bases).</summary>
+        private static Dictionary<string, List<int>> BuildIndustrialBasesByFaction(List<int> allPlacedBases)
         {
-            if (p.tiles.Count == 0 || !allPlacedBases.Any()) return 0f;
+            var result = new Dictionary<string, List<int>>();
+            if (allPlacedBases.Count == 0) return result;
 
-            // Find all placed bases that belong to Industrial factions
-            Dictionary<string, List<int>> industrialBasesByFaction = new Dictionary<string, List<int>>();
-            foreach (int tile in allPlacedBases)
+            var placed = new HashSet<int>(allPlacedBases);
+            List<Settlement> settlements = Find.WorldObjects.Settlements;
+            for (int i = 0; i < settlements.Count; i++)
             {
-                var settlement = Find.WorldObjects.Settlements.FirstOrDefault(s => s.Tile == tile);
-                if (settlement != null && settlement.Faction != null && settlement.Faction.def.techLevel == TechLevel.Industrial)
-                {
-                    string fId = settlement.Faction.GetUniqueLoadID();
-                    if (!industrialBasesByFaction.ContainsKey(fId))
-                    {
-                        industrialBasesByFaction[fId] = new List<int>();
-                    }
-                    industrialBasesByFaction[fId].Add(tile);
-                }
-            }
+                Settlement s = settlements[i];
+                if (s?.Faction == null || s.Faction.def.techLevel != TechLevel.Industrial) continue;
+                int tile = s.Tile.tileId;
+                if (!placed.Contains(tile)) continue;
 
-            if (industrialBasesByFaction.Count < 2) return 0f;
+                string fId = s.Faction.GetUniqueLoadID();
+                if (!result.TryGetValue(fId, out List<int> list))
+                {
+                    result[fId] = list = new List<int>();
+                }
+                list.Add(tile);
+            }
+            return result;
+        }
+
+        private static float GetTribalBetweennessBonus(GeographicProvince p, Dictionary<string, List<int>> industrialBasesByFaction, WorldGrid worldGrid)
+        {
+            if (p.tiles.Count == 0 || industrialBasesByFaction == null || industrialBasesByFaction.Count < 2) return 0f;
 
             // Calculate min distance to each industrial faction
             List<float> minDists = new List<float>();
