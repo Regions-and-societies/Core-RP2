@@ -2,6 +2,13 @@
 
 Full version history. The mod page and Workshop description show only the latest release; earlier versions are recorded here. Versions before 0.1.0 shipped under the former identity, **RimSynapse - Regions and Territories**, and are kept below as the predecessor's history.
 
+## v0.2.3 - Worldgen resilience with missing DLC content
+
+- **Fixed: black world when DLC content is unresolved.** Classic (no-expansion) ideoligion role naming crashed world generation when the Ideology DLC was missing but other content added classic leader-role precepts — including for the player faction, which the 0.2.2 guard could not reach. Role naming is now guarded directly: a missing foundation gets a fallback title, and any naming failure degrades to the fallback instead of a dead world.
+- **Graceful DLC degradation in faction generation.** A faction needing Royalty title content that isn't resolved is skipped with a single log line and the world generates without it; repeated skips log one line each instead of a wall of stacks.
+- **Marked incompatible with Layered Atmosphere and Orbit (LAO).** It restructures the planet-layer stack that faction placement hooks into, breaking world generation. See [Compatibility Matrix](Compatibility_Matrix).
+- **Dev quality-of-life.** The map-mode test helper now only runs on `-quicktest` launches, so playing with dev mode on no longer pulls you to the world map after starting a colony.
+
 ## v0.2.2 - Worldgen fixes and performance
 
 - **Fixed: black world on generate.** Faction generation built each faction's ideoligion without the faction context and planet layer vanilla supplies, and classic (no-expansion) ideoligion role naming crashed world generation — the planet never rendered. Generation now mirrors vanilla's own call exactly, and a per-faction guard degrades any future faction failure to a logged skip instead of a dead world.

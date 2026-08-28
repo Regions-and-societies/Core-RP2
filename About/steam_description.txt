@@ -1,5 +1,5 @@
 [b]Discord Community:[/b] [url=https://discord.gg/eVBebZ2N9s]https://discord.gg/eVBebZ2N9s[/url]
-[b]Version:[/b] v0.2.2 (Target: RimWorld 1.6)
+[b]Version:[/b] v0.2.3 (Target: RimWorld 1.6)
 
 [h2]Compatibility Patches[/h2]
 Regions and Societies extends its demographic hooks to the mods below — install the matching patch and their factions, settlements, and events stay in sync with each region's live demographics, ownership, and population:
@@ -46,11 +46,12 @@ Regions and Societies does most of its work during world generation: it draws th
 
 ---
 
-[h2]Changelog (v0.2.2) - Worldgen fixes and performance[/h2]
+[h2]Changelog (v0.2.3) - Worldgen resilience with missing DLC content[/h2]
 [list]
-[*] [b]Fixed: black world on generate.[/b] Faction generation built each faction's ideoligion without the faction context and planet layer vanilla supplies, and classic (no-expansion) ideoligion role naming crashed world generation - the planet never rendered. Generation now mirrors vanilla's own call exactly, and a per-faction guard degrades any future faction failure to a logged skip instead of a dead world.
-[*] [b]The player always has somewhere to land.[/b] At small worlds or low coverage, NPC placement could claim every settleable province and the starting-site chooser found no valid tile. Placement now always leaves at least one settleable land province unclaimed.
-[*] [b]Worldgen performance at scale.[/b] Terrain features are read from the world grid once instead of once per faction, and the tribal betweenness bonus no longer rebuilds its industrial-base map per candidate province - large planets (high planet scale, 100% coverage) generate dramatically faster.
+[*] [b]Fixed: black world when DLC content is unresolved.[/b] Classic (no-expansion) ideoligion role naming crashed world generation when the Ideology DLC was missing but other content added classic leader-role precepts - including for the player faction, which the 0.2.2 guard could not reach. Role naming is now guarded directly: a missing foundation gets a fallback title, and any naming failure degrades to the fallback instead of a dead world.
+[*] [b]Graceful DLC degradation in faction generation.[/b] A faction needing Royalty title content that isn't resolved is skipped with a single log line and the world generates without it.
+[*] [b]Marked incompatible with Layered Atmosphere and Orbit (LAO).[/b] It restructures the planet-layer stack that faction placement hooks into, breaking world generation.
+[*] [b]Dev quality-of-life.[/b] The map-mode test helper now only runs on -quicktest launches, so playing with dev mode on no longer pulls you to the world map after starting a colony.
 [/list]
 
 [b]Full version history:[/b] [url=https://github.com/Regions-and-societies/Core-MMF/wiki/Changelog]github.com/Regions-and-societies/Core-MMF/wiki[/url]
@@ -65,6 +66,7 @@ Regions and Societies does most of its work during world generation: it draws th
 [*] [b]Anomaly DLC:[/b] Compatible
 [*] [b]Realistic Planets 2:[/b] Required - it supplies the map-mode framework this edition runs on.
 [*] [b]Map Mode Framework (standalone) and the standard Regions and Societies edition:[/b] Incompatible with this edition by design - all three declare each other incompatible because only one framework may load. Use the standard edition with Map Mode Framework instead.
+[*] [b]Layered Atmosphere and Orbit (LAO):[/b] Incompatible - it restructures the planet-layer stack that faction placement hooks into, breaking world generation.
 [*] [b]Empire, World Domination, Vanilla Factions Expanded, Vanilla Outposts Expanded:[/b] Supported through dedicated companion compatibility patches, released separately. The patches bind whichever edition is present. Core alone classifies vanilla world objects.
 [*] [b]Existing saves:[/b] Supported in Compatibility Mode - provinces are generated and territory is drawn, but placement rules stand down and stay with vanilla or whichever mod owns them. A new colony still gets the full experience.
 [/list]

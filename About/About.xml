@@ -4,7 +4,7 @@
     <author>Regions and Societies Team</author>
     <packageId>RegionsAndSocieties.CoreRP2</packageId>
     <url>https://github.com/Regions-and-societies/Core-RP2</url>
-    <modVersion>0.2.2</modVersion>
+    <modVersion>0.2.3</modVersion>
     <supportedVersions>
         <li>1.6</li>
     </supportedVersions>
@@ -27,6 +27,9 @@
     <incompatibleWith>
         <li>RegionsAndSocieties.Core</li>
         <li>NozoMe.MapModeFramework</li>
+        <!-- LAO restructures the planet-layer stack that faction placement hooks into, leaving
+             world generation without the base surface layer it expects (0.2.3). -->
+        <li>MrHydralisk.LayeredAtmosphereOrbit</li>
     </incompatibleWith>
     <loadAfter>
         <li>koth.RealisticPlanets2</li>
@@ -40,7 +43,7 @@
     </loadAfter>
     <description>
 Discord Community: https://discord.gg/eVBebZ2N9s
-Version: v0.2.2 (Target: RimWorld 1.6)
+Version: v0.2.3 (Target: RimWorld 1.6)
 
 Regions and Societies — Realistic Planets 2 edition
 Official Wiki and Documentation: https://github.com/Regions-and-societies/Core-MMF/wiki
@@ -65,10 +68,11 @@ A world generated with the mod installed gets everything, including placement ru
 
 Requires: Realistic Planets 2, Harmony
 
---- Changelog (v0.2.2) - Worldgen fixes and performance ---
-- Fixed: black world on generate. Faction generation built each faction's ideoligion without the faction context and planet layer vanilla supplies, and classic (no-expansion) ideoligion role naming crashed world generation - the planet never rendered. Generation now mirrors vanilla's own call exactly, and a per-faction guard degrades any future faction failure to a logged skip instead of a dead world.
-- The player always has somewhere to land: at small worlds or low coverage, NPC placement could claim every settleable province and the starting-site chooser found no valid tile. Placement now always leaves at least one settleable land province unclaimed.
-- Worldgen performance at scale: terrain features are read from the world grid once instead of once per faction, and the tribal betweenness bonus no longer rebuilds its industrial-base map per candidate province - large planets (high planet scale, 100% coverage) generate dramatically faster.
+--- Changelog (v0.2.3) - Worldgen resilience with missing DLC content ---
+- Fixed: black world when DLC content is unresolved. Classic (no-expansion) ideoligion role naming crashed world generation when the Ideology DLC was missing but other content added classic leader-role precepts - including for the player faction, which the 0.2.2 guard could not reach. Role naming is now guarded directly: a missing foundation gets a fallback title, and any naming failure degrades to the fallback instead of a dead world.
+- Graceful DLC degradation in faction generation: a faction needing Royalty title content that isn't resolved is skipped with a single log line and the world generates without it; repeated skips log one line each instead of a wall of stacks.
+- Marked incompatible with Layered Atmosphere and Orbit (LAO): it restructures the planet-layer stack that faction placement hooks into, breaking world generation.
+- Dev quality-of-life: the map-mode test helper now only runs on -quicktest launches, so playing with dev mode on no longer pulls you to the world map after starting a colony.
 
 Source code: https://github.com/Regions-and-societies/Core-RP2
 Steam Workshop: https://steamcommunity.com/sharedfiles/filedetails/?id=3784666526
