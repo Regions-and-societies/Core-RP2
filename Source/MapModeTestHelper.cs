@@ -17,11 +17,12 @@ namespace RegionsAndSocieties
         {
             if (triggered) return;
 
-            // Dev-only. This had no gate at all, so every player starting a game was yanked to the
-            // world map and had their map mode switched 300 ticks in — and, with Empire installed,
-            // had a foreign mod's destructive test suite run on them. None of that belongs in a
-            // shipped mod.
-            if (!Prefs.DevMode) { triggered = true; return; }
+            // Quicktest-only. This had no gate at all, so every player starting a game was yanked
+            // to the world map and had their map mode switched 300 ticks in — and, with Empire
+            // installed, had a foreign mod's destructive test suite run on them. A DevMode-only
+            // gate still caught the many players who play with dev mode on, so the gate is the
+            // -quicktest launch flag: it fires only on the automated test path, never a real game.
+            if (!Prefs.DevMode || !GenCommandLine.CommandLineArgPassed("quicktest")) { triggered = true; return; }
 
             if (Find.CurrentMap == null) return;
 

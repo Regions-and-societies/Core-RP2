@@ -56,6 +56,12 @@ No ordering constraint has been observed against Empire, VOE, VEF, World Dominat
 
 ---
 
+## Known incompatibilities
+
+- **Layered Atmosphere and Orbit (LAO)** (`MrHydralisk.LayeredAtmosphereOrbit`) — declared `incompatibleWith` since 0.2.3. LAO restructures the planet-layer stack that this mod's faction placement hooks into, leaving world generation without the base surface layer it expects; the result is a broken ("black") world on generate.
+
+---
+
 ## Known limits
 
 - **Best on a new colony.** An existing save is adopted in compatibility mode; see [Save Compatibility](Save_Compatibility).
