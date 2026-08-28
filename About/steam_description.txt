@@ -61,20 +61,6 @@ Removing it from an in-progress save logs errors about missing province data on 
 [*] [b]Worldgen performance at scale.[/b] Terrain features are read from the world grid once instead of once per faction, and the tribal betweenness bonus no longer rebuilds its industrial-base map per candidate province - large planets (high planet scale, 100% coverage) generate dramatically faster.
 [/list]
 
-[h2]Changelog (v0.2.1) - Hotfix[/h2]
-[list]
-[*] Fixed: the in-game debug actions menu (dev mode) failed to open while the mod was installed. A debug action carried a parameter, which RimWorld cannot bind, so building the menu threw and it never opened. Removed the offending action; the menu now opens normally. No gameplay or save changes.
-[/list]
-
-[h2]Changelog (v0.2.0) - Regional Demographics[/h2]
-[list]
-[*] [b]Seven demographic axes per region[/b], each with a map overlay, region-panel breakdown and public endpoint: age structure (tech-level pyramids, natalist memes, longevity genes), sex ratio, xenotype castes, ideoligion shares with neighbour belief-similarity, wealth/SES tiers (terrain richness and trade roads count), education tiers, and an occupation mix with employment rate.
-[*] [b]Derived, never stored:[/b] everything is computed on read from the world seed - deterministic on every machine, nothing added to the save file.
-[*] [b]Honest DLC degradation:[/b] without Biotech the xenotype overlay says "all Baseliner"; without Ideology every region is secular - no flat map pretending to be data.
-[*] [b]DemographicHooks API:[/b] companion mods report drafts in progress (transient sex-ratio skew) or combat losses (a generational scar recovering over a configurable number of years, default 15, slider provided).
-[*] [b]Territory compactness:[/b] faction domains square off instead of spidering, tunable with a new slider; expansion mods can rank candidate provinces with the same public metric.
-[*] [b]Dwellings readout:[/b] the population tooltip answers for every habitable tile (zero included) as a compass block of the tile and its neighbours.
-[/list]
 [b]Full version history:[/b] [url=https://github.com/Regions-and-societies/Core-MMF/wiki/Changelog]github.com/Regions-and-societies/Core-MMF/wiki[/url]
 
 ---
