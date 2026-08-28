@@ -26,17 +26,9 @@ Regions and Societies is the continuation of Regions and Territories under a new
 ---
 
 [h2]Best on a New Colony - Existing Saves Supported in Compatibility Mode[/h2]
-[b]A world generated with the mod installed gets everything. A world already in progress is adopted in Compatibility Mode.[/b]
+Regions and Societies does most of its work during world generation: it draws the province boundaries and places faction settlements according to them. Added to a world already in progress, it adopts that world in [b]Compatibility Mode[/b] - provinces are drawn and territory is owned and shown, but placement stays with vanilla or whichever mod owns it. The mode is decided once per save, shown under [b]Strict territorial ownership[/b] in the mod settings.
 
-Regions and Societies does most of its work during world generation. It draws the province boundaries and then places faction settlements according to them, respecting region occupancy limits, border buffers, and sequential expansion.
-
-Added to a world that already exists, it adopts that world in Compatibility Mode. Provinces are still drawn and territory is still owned and shown, but placement stands down: the mod will not decide where settlements and outposts may be built, because that world was settled long before it arrived. Vanilla and other mods keep control of placement, and more than one settlement may share a province.
-
-The mode is decided once per save and recorded in it. You can see and change it under [b]Strict territorial ownership[/b] in the mod settings while that save is loaded - though switching an in-progress world to strict starts applying rules to settlements that were never placed under them.
-
-[b]A new colony is still the recommended way to play.[/b] Compatibility mode makes an existing save usable, not equivalent - geography-driven placement, occupancy limits, border buffers and sequential expansion are the heart of the mod, and only a world generated with it installed gets them.
-
-Removing it from an in-progress save logs errors about missing province data on next load; the save usually still opens, but this is not a supported path.
+[b]A new colony is still the recommended way to play[/b] - only a world generated with the mod installed gets geography-driven placement, occupancy limits, border buffers and sequential expansion. Removing the mod from an in-progress save is not supported and will log errors.
 
 ---
 
