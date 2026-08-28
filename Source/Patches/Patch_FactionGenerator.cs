@@ -628,8 +628,23 @@ namespace RegionsAndSocieties.Patches
         /// Building proper parms addresses the root; the try/catch is defence in depth so any future
         /// faction-gen throw degrades to a skipped, logged faction rather than a dead world.</para>
         /// </summary>
+        private static bool loggedSkipDetail;
+
         private static Faction TryGenerateFaction(PlanetLayer layer, FactionDef def)
         {
+            // Graceful DLC degradation: a faction whose def carries royal-title content cannot
+            // generate its leader when Royalty isn't resolved (the title pipeline hands
+            // PawnGenerator a null psylink HediffDef and it NREs) — pre-skip it cleanly instead of
+            // throwing into the catch below. On a healthy install the def and its DLC load or
+            // unload together, so this only fires in the half-resolved states (a missing DLC plus
+            // mods referencing its content) that black-worlded 0.2.1. The world simply generates
+            // without that faction, which is the honest degradation.
+            if (!ModsConfig.RoyaltyActive && def?.royalTitleTags != null && def.royalTitleTags.Count > 0)
+            {
+                Log.Message($"[RegionsAndSocieties] Skipped faction '{def.defName}' — it needs Royalty title content that isn't resolved (DLC inactive). The world generates without it.");
+                return null;
+            }
+
             try
             {
                 // Mirror vanilla's own generation call as closely as possible so classic (no-expansion)
@@ -644,7 +659,17 @@ namespace RegionsAndSocieties.Patches
             }
             catch (Exception ex)
             {
-                Log.Warning($"[RegionsAndSocieties] Skipped faction '{def?.defName ?? "null"}' — generation threw and would otherwise abort world generation: {ex}");
+                // First skip carries the full stack for diagnosis; later ones collapse to one line
+                // so a world with several unresolvable factions logs a readable list, not a wall.
+                if (!loggedSkipDetail)
+                {
+                    loggedSkipDetail = true;
+                    Log.Warning($"[RegionsAndSocieties] Skipped faction '{def?.defName ?? "null"}' — generation threw and would otherwise abort world generation: {ex}");
+                }
+                else
+                {
+                    Log.Warning($"[RegionsAndSocieties] Skipped faction '{def?.defName ?? "null"}' — generation threw ({ex.GetType().Name}: {ex.Message}); full stack on the first skip above.");
+                }
                 return null;
             }
         }
