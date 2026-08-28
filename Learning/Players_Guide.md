@@ -45,7 +45,7 @@ The sex ratio is the one axis other mods can bend over time: a companion mod can
 
 ## Faction placement at world generation
 
-Faction bases are placed by geography rather than scattered: each faction weighs minerals, nutrition, forage, grazing and hunting according to its tech level and temperament, settles as contiguous territory, and shies away from ground rivals already hold. One knob controls overall density — the **claimed land area** slider (in the mod settings and on the world-generation screen), the target share of livable land claimed by faction territories.
+Faction bases are placed by geography rather than scattered: each faction weighs minerals, nutrition, forage, grazing and hunting according to its tech level and temperament, settles as contiguous territory, and shies away from ground rivals already hold. One knob controls overall density — the **claimed land area** slider (in the mod settings and on the world-generation screen), the target share of livable land claimed by faction territories. Whatever the density and world size, placement always leaves at least one settleable land province unclaimed, so the player has somewhere to land.
 
 Since 0.2.0 domains also prefer to **square off rather than spider**: growth favours provinces already embedded in the faction's territory — filling pockets before extending tendrils — controlled by the **Territory compactness** slider. It is a preference, never a rule: a faction pinned against an ocean still takes the awkward province when its land is dramatically better.
 

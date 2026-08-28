@@ -1,5 +1,15 @@
 [b]Discord Community:[/b] [url=https://discord.gg/eVBebZ2N9s]https://discord.gg/eVBebZ2N9s[/url]
-[b]Version:[/b] v0.2.1 (Target: RimWorld 1.6)
+[b]Version:[/b] v0.2.2 (Target: RimWorld 1.6)
+
+[h2]Compatibility Patches[/h2]
+Regions and Societies extends its demographic hooks to the mods below — install the matching patch and their factions, settlements, and events stay in sync with each region's live demographics, ownership, and population:
+[list]
+[*] [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3784870393]Regions and Societies: Empire Patch[/url]
+[*] [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3784875532]Regions and Societies: Vanilla Factions Expanded Patch[/url]
+[*] [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3784875379]Regions and Societies: Outposts Expanded Patch[/url]
+[*] [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3784875681]Regions and Societies: World Domination Patch[/url]
+[/list]
+[b]Alternative edition:[/b] not using Realistic Planets 2? Install [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3784666060]Regions and Societies (Map Mode Framework)[/url] instead of this one.
 
 [img]https://i.imgur.com/tWWMap9.png[/img]
 [img]https://i.imgur.com/TfTAgoV.png[/img]
@@ -43,6 +53,13 @@ Removing it from an in-progress save logs errors about missing province data on 
 [/list]
 
 ---
+
+[h2]Changelog (v0.2.2) - Worldgen fixes and performance[/h2]
+[list]
+[*] [b]Fixed: black world on generate.[/b] Faction generation built each faction's ideoligion without the faction context and planet layer vanilla supplies, and classic (no-expansion) ideoligion role naming crashed world generation - the planet never rendered. Generation now mirrors vanilla's own call exactly, and a per-faction guard degrades any future faction failure to a logged skip instead of a dead world.
+[*] [b]The player always has somewhere to land.[/b] At small worlds or low coverage, NPC placement could claim every settleable province and the starting-site chooser found no valid tile. Placement now always leaves at least one settleable land province unclaimed.
+[*] [b]Worldgen performance at scale.[/b] Terrain features are read from the world grid once instead of once per faction, and the tribal betweenness bonus no longer rebuilds its industrial-base map per candidate province - large planets (high planet scale, 100% coverage) generate dramatically faster.
+[/list]
 
 [h2]Changelog (v0.2.1) - Hotfix[/h2]
 [list]
