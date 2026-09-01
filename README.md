@@ -6,6 +6,15 @@ This is the **Realistic Planets 2 edition** — a fork of
 map-mode framework instead of the standalone Map Mode Framework. See [FORK.md](FORK.md) for
 what diverges and how upstream releases are pulled forward.
 
+## Roadmap
+
+Development tracks upstream [Core-MMF](https://github.com/Regions-and-societies/Core-MMF);
+this edition pulls each release forward. Detail lives in the upstream
+[issue tracker](https://github.com/Regions-and-societies/Core-MMF/issues) and
+[milestones](https://github.com/Regions-and-societies/Core-MMF/milestones).
+
+![Regions and Societies development roadmap](About/Roadmap.png)
+
 ## Release provenance
 
 Every release ships `Assemblies/CHECKSUMS.sha256`, generated from the final release build
