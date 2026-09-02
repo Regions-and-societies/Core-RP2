@@ -30,6 +30,10 @@
         <!-- LAO restructures the planet-layer stack that faction placement hooks into, leaving
              world generation without the base surface layer it expects (0.2.3). -->
         <li>MrHydralisk.LayeredAtmosphereOrbit</li>
+        <!-- Regions and Societies IS the continuation of Regions and Territories under a new identity.
+             Running both loads two competing region/territory generators over the same world. Never
+             load both. -->
+        <li>RimSynapse.RegionsAndTerritories</li>
     </incompatibleWith>
     <loadAfter>
         <li>koth.RealisticPlanets2</li>
