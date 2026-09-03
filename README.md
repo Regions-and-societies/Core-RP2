@@ -6,6 +6,10 @@ This is the **Realistic Planets 2 edition** — a fork of
 map-mode framework instead of the standalone Map Mode Framework. See [FORK.md](FORK.md) for
 what diverges and how upstream releases are pulled forward.
 
+## How the world is divided into territories
+
+![How the world is divided into territories: nature draws the walls, each area gets a fitting number of territories, then each is sliced into even pieces](https://i.imgur.com/hmYiihY.png)
+
 ## Roadmap
 
 Development tracks upstream [Core-MMF](https://github.com/Regions-and-societies/Core-MMF);
