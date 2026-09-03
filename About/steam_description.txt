@@ -25,6 +25,12 @@ Regions and Societies is the continuation of Regions and Territories under a new
 
 ---
 
+[h2]How the World Is Divided Into Territories[/h2]
+Three simple steps: nature draws the walls - oceans, mountains, and the places where one kind of land meets another. Each natural area is given a fitting number of territories, and each is then sliced into even pieces. The mountains and coastlines become the borders between territories, just like a real map.
+[img]https://i.imgur.com/hmYiihY.png[/img]
+
+---
+
 [h2]Best on a New Colony - Existing Saves Supported in Compatibility Mode[/h2]
 Regions and Societies does most of its work during world generation: it draws the province boundaries and places faction settlements according to them. Added to a world already in progress, it adopts that world in [b]Compatibility Mode[/b] - provinces are drawn and territory is owned and shown, but placement stays with vanilla or whichever mod owns it. The mode is decided once per save, shown under [b]Strict territorial ownership[/b] in the mod settings.
 
