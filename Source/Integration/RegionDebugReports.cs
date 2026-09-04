@@ -45,7 +45,7 @@ namespace RegionsAndSocieties.Integration
             }
 
             int band1to5 = 0, band6to12 = 0, band13to30 = 0, band31plus = 0;
-            int naturalPockets = 0, maxNatural = 0, maxNaturalOffLandmark = 0, offLandmarkOverCap = 0;
+            int naturalPockets = 0, maxNatural = 0, maxNaturalOffLandmark = 0, offLandmarkOverCap = 0, suburbTiles = 0;
 
             for (int i = 0; i < count; i++)
             {
@@ -58,6 +58,7 @@ namespace RegionsAndSocieties.Integration
                 else band31plus++;
 
                 if (objectTiles.Contains(i)) continue;   // a settlement, not a natural pocket
+                if (PopulationDensityUtility.IsSuburbTile(i)) { suburbTiles++; continue; }   // a settlement's spread (0.3.0)
 
                 naturalPockets++;
                 if (src > maxNatural) maxNatural = src;
@@ -77,7 +78,8 @@ namespace RegionsAndSocieties.Integration
             sb.AppendLine("=== R&T density report (#62/#55) ===");
             sb.AppendLine($"Algorithm: {verName}");
             sb.AppendLine($"Source-pop tiles by band: 1-5={band1to5}, 6-12={band6to12}, 13-30={band13to30}, 31+={band31plus}");
-            sb.AppendLine($"Natural pockets (no world object): {naturalPockets}; max={maxNatural} (cap 12), max off-landmark={maxNaturalOffLandmark} (cap 5)");
+            sb.AppendLine($"Sprawl tiles (a settlement's spread, not pockets): {suburbTiles}");
+            sb.AppendLine($"Natural pockets (no world object, no sprawl): {naturalPockets}; max={maxNatural} (cap 12), max off-landmark={maxNaturalOffLandmark} (cap 5)");
             sb.AppendLine($"Off-landmark natural pockets over cap (>5): {offLandmarkOverCap}  [expect 0]");
 
             var mgr = Find.World.GetComponent<SynapseRegionManager>();
@@ -599,6 +601,247 @@ namespace RegionsAndSocieties.Integration
         }
 
         /// <summary>
+        /// #20 border-first partition audit. The numeric harness for the new generator: land coverage,
+        /// the land-province size distribution, an average shape index (share of a province's tile
+        /// edges that face its own tiles — higher is more blob-like), and a tail/neck detector counting
+        /// provinces with pendant tiles (a tile with a single same-province neighbour — the chain-tip
+        /// signature the old river-absorption produced). The tail count should be zero or near it; a
+        /// non-zero worst-shape list is where to look when eyeballing the map.
+        /// </summary>
+        /// <summary>
+        /// The reproduction key for a world plus a region-shape audit (#20). Because the partition is a
+        /// deterministic function of the terrain — which is deterministic from seed + world settings +
+        /// modlist + game version — logging the seed and settings lets any "horrid region N" report be
+        /// reproduced exactly. Auto-logged at worldgen and available on demand; the worst-shaped list
+        /// (perimeter-per-tile, higher = spidery/ribbon) points at the regions to fix.
+        /// </summary>
+        public static string WorldShapeReport()
+        {
+            // No main-thread guard: this only READS world info and province data and builds a string (it
+            // creates no Unity objects), so it is safe to auto-log from the worldgen worker thread.
+            World world = Find.World;
+            if (world == null) return "no world loaded";
+            WorldInfo info = world.info;
+
+            var sb = new StringBuilder();
+            sb.AppendLine("=== R&S world + region-shape report (#20) ===");
+            sb.AppendLine($"world '{info?.name}'   seed \"{info?.seedString}\" (int {info?.Seed})");
+            sb.AppendLine($"coverage {info?.planetCoverage:P0}   rainfall {info?.overallRainfall}   temperature {info?.overallTemperature}   pollution {info?.pollution:P0}");
+            sb.AppendLine("REPRO: regenerate with this seed + these settings + this modlist to get the identical regions.");
+
+            var mgr = world.GetComponent<SynapseRegionManager>();
+            var provinces = mgr?.Provinces;
+            if (provinces == null) { sb.Append("no provinces generated."); return sb.ToString(); }
+
+            var scored = new List<(int id, int tiles, int perim, float ratio)>();
+            int tiny = 0;
+            foreach (GeographicProvince p in provinces)
+            {
+                if (p == null || p.provinceType != ProvinceType.Land || p.tiles == null || p.tiles.Count == 0) continue;
+                int tiles = p.tiles.Count;
+                int perim = p.perimeterEdgeCount > 0 ? p.perimeterEdgeCount : (p.perimeterTiles?.Count ?? 0);
+                if (tiles < 4) tiny++;
+                // Scale-invariant spideriness: perimeter / sqrt(area). A compact hex blob is ~6 at any
+                // size; a long thin ribbon grows without bound. So this flags genuinely bad SHAPES, not
+                // merely small provinces.
+                float ratio = (float)(perim / System.Math.Sqrt(tiles));
+                scored.Add((p.id, tiles, perim, ratio));
+            }
+            sb.AppendLine($"land provinces: {scored.Count}   tiny (<4 tiles): {tiny}");
+            scored.Sort((a, b) => b.ratio.CompareTo(a.ratio));
+            sb.AppendLine("worst-shaped (perimeter/√tiles — ~6 is a compact blob, higher = spidery/ribbon):");
+            for (int i = 0; i < scored.Count && i < 12; i++)
+                sb.AppendLine($"  region {scored[i].id}: {scored[i].tiles} tiles, perimeter {scored[i].perim}, spideriness {scored[i].ratio:0.0}");
+            return sb.ToString().TrimEnd();
+        }
+
+        public static string PartitionAuditReport()
+        {
+            if (!UnityData.IsInMainThread) return "must run on the main thread";
+            if (Find.World == null) return "no world loaded";
+
+            var mgr = Find.World.GetComponent<SynapseRegionManager>();
+            if (mgr?.Provinces == null || mgr.Provinces.Count == 0) return "no regions generated";
+            mgr.EnsureTopology();
+
+            WorldGrid grid = Find.WorldGrid;
+            int totalTiles = grid.TilesCount;
+
+            // Coverage: of the usable land tiles, how many landed in some province.
+            int usableLand = 0, assignedLand = 0;
+            for (int t = 0; t < totalTiles; t++)
+            {
+                if (!SynapseRegionManager.IsTileUsable(t)) continue;
+                usableLand++;
+                if (mgr.GetProvinceId(t) >= 0) assignedLand++;
+            }
+
+            var landSizes = new List<int>();
+            int tailProvinces = 0, tailTiles = 0;
+            double shapeSum = 0;
+            var neighbors = new List<PlanetTile>();
+            // worst shapes: lowest shape index (most spidery), a few examples
+            var shapeById = new List<KeyValuePair<int, float>>();
+
+            foreach (var p in mgr.Provinces)
+            {
+                if (p.provinceType != ProvinceType.Land || p.tiles == null || p.tiles.Count == 0) continue;
+                int area = p.tiles.Count;
+                landSizes.Add(area);
+
+                int internalEdges = 0, boundaryEdges = 0, pendants = 0;
+                foreach (int t in p.tiles)
+                {
+                    int same = 0;
+                    neighbors.Clear();
+                    grid.GetTileNeighbors(t, neighbors);
+                    foreach (var n in neighbors)
+                    {
+                        if (mgr.GetProvinceId(n.tileId) == p.id) { same++; internalEdges++; }
+                        else boundaryEdges++;
+                    }
+                    if (same == 1 && area > 2) pendants++;
+                }
+
+                float shape = (internalEdges + boundaryEdges) > 0
+                    ? (float)internalEdges / (internalEdges + boundaryEdges) : 1f;
+                shapeSum += shape;
+                shapeById.Add(new KeyValuePair<int, float>(p.id, shape));
+                if (pendants > 0) { tailProvinces++; tailTiles += pendants; }
+            }
+
+            var sb = new StringBuilder();
+            sb.AppendLine("=== R&T border-first partition audit (#20) ===");
+            sb.AppendLine($"coverage: {assignedLand}/{usableLand} usable land tiles assigned"
+                + (usableLand > 0 ? $" ({100.0 * assignedLand / usableLand:0.0}%)" : ""));
+
+            if (landSizes.Count == 0)
+            {
+                sb.Append("no land provinces");
+                return sb.ToString();
+            }
+
+            landSizes.Sort();
+            int n2 = landSizes.Count;
+            double mean = landSizes.Average();
+            int median = landSizes[n2 / 2];
+            sb.AppendLine($"land provinces={n2}; size min={landSizes[0]} median={median} mean={mean:0.0} max={landSizes[n2 - 1]}");
+
+            // Size histogram in coarse buckets.
+            int[] buckets = { 0, 0, 0, 0, 0, 0 };
+            string[] labels = { "<25", "25-49", "50-99", "100-149", "150-249", "250+" };
+            foreach (int s in landSizes)
+            {
+                if (s < 25) buckets[0]++;
+                else if (s < 50) buckets[1]++;
+                else if (s < 100) buckets[2]++;
+                else if (s < 150) buckets[3]++;
+                else if (s < 250) buckets[4]++;
+                else buckets[5]++;
+            }
+            var hist = new StringBuilder();
+            for (int i = 0; i < buckets.Length; i++) hist.Append($"{labels[i]}={buckets[i]}  ");
+            sb.AppendLine("size histogram: " + hist.ToString().TrimEnd());
+
+            sb.AppendLine($"avg shape index (share of tile edges internal; higher=blobbier)={shapeSum / n2:0.00}");
+            sb.AppendLine($"tails/necks: {tailProvinces} land province(s) have pendant tiles ({tailTiles} tile(s) total) — target 0");
+
+            shapeById.Sort((a, b) => a.Value.CompareTo(b.Value));
+            var worst = new StringBuilder();
+            for (int i = 0; i < shapeById.Count && i < 6; i++)
+            {
+                var kv = shapeById[i];
+                worst.Append($"#{kv.Key}({kv.Value:0.00})  ");
+            }
+            sb.Append("most spidery provinces: " + worst.ToString().TrimEnd());
+            return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// #20 fixed-seed tooling: re-run the partition on the loaded world, then report the audit. A
+        /// save keeps its scribed provinces, so loading the fixed test world and calling this is what
+        /// re-partitions the SAME terrain with the current code — the deterministic tune-and-compare
+        /// loop. Refreshes ownership so the map modes redraw.
+        /// </summary>
+        public static string RegenerateAndAudit()
+        {
+            if (!UnityData.IsInMainThread) return "must run on the main thread";
+            if (Find.World == null) return "no world loaded";
+            var mgr = Find.World.GetComponent<SynapseRegionManager>();
+            if (mgr == null) return "no region manager";
+            mgr.GenerateProvinces();
+            mgr.MarkOwnersDirty();
+            mgr.RecalculateProvinceOwners();
+            return PartitionAuditReport();
+        }
+
+        /// <summary>
+        /// #20 visualization dump: write every tile's partition assignment to a CSV so the border-first
+        /// result can be rendered as a full-globe map for dissection. One row per tile:
+        /// tileId, longitude, latitude, provinceId, provinceType(int), river(0/1). Longitude/latitude
+        /// come from the tile's 3D centre (equirectangular). Written to %TEMP%\rt_partition_dump.csv.
+        /// </summary>
+        public static string DumpPartitionCsv()
+        {
+            if (!UnityData.IsInMainThread) return "must run on the main thread";
+            if (Find.World == null) return "no world loaded";
+            var mgr = Find.World.GetComponent<SynapseRegionManager>();
+            if (mgr?.Provinces == null || mgr.Provinces.Count == 0) return "no regions generated";
+
+            WorldGrid grid = Find.WorldGrid;
+            int total = grid.TilesCount;
+            var neigh = new List<PlanetTile>();
+            var sb = new StringBuilder(total * 26);
+            sb.Append("tileId,lon,lat,provinceId,provinceType,river,hill\n");
+            for (int t = 0; t < total; t++)
+            {
+                UnityEngine.Vector3 c = grid.GetTileCenter(t);
+                UnityEngine.Vector3 u = c.normalized;
+                double lat = System.Math.Asin(System.Math.Max(-1.0, System.Math.Min(1.0, u.y))) * 57.29577951308232;
+                double lon = System.Math.Atan2(u.z, u.x) * 57.29577951308232;
+
+                int pid = mgr.GetProvinceId(t);
+                int ptype = -1;
+                if (pid >= 0)
+                {
+                    var p = mgr.GetProvince(pid);
+                    if (p != null) ptype = (int)p.provinceType;
+                }
+
+                int river = 0;
+                neigh.Clear();
+                grid.GetTileNeighbors(t, neigh);
+                foreach (var n in neigh)
+                {
+                    if (grid.GetRiverDef(t, n.tileId) != null || grid.GetRiverDef(n.tileId, t) != null) { river = 1; break; }
+                }
+
+                // Hilliness class 0..4 (Flat, SmallHills, LargeHills, Mountainous, Impassable) so the
+                // offline visualization can show pass/high-ground structure.
+                Tile td = grid[t];
+                int hill;
+                switch (td.hilliness)
+                {
+                    case Hilliness.SmallHills: hill = 1; break;
+                    case Hilliness.LargeHills: hill = 2; break;
+                    case Hilliness.Mountainous: hill = 3; break;
+                    case Hilliness.Impassable: hill = 4; break;
+                    default: hill = 0; break;
+                }
+
+                sb.Append(t).Append(',')
+                  .Append(lon.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
+                  .Append(lat.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
+                  .Append(pid).Append(',').Append(ptype).Append(',').Append(river).Append(',').Append(hill).Append('\n');
+            }
+
+            string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "rt_partition_dump.csv");
+            try { System.IO.File.WriteAllText(path, sb.ToString()); }
+            catch (Exception ex) { return "failed to write dump: " + ex.Message; }
+            return $"wrote {total} tiles to {path} ({mgr.Provinces.Count} provinces)";
+        }
+
+        /// <summary>
         /// #72 test tooling: force a synthetic ownership on a province so the overlay's SOLID / CONTESTED /
         /// LOOSE seams can be eyeballed without engineering real holdings. Writes <c>province.ownershipData</c>
         /// directly; the overlay's own <c>RecalculateProvinceOwners</c> early-returns while the epoch is
@@ -846,6 +1089,60 @@ namespace RegionsAndSocieties.Integration
         /// #56: per settlement, its size tier, the outpost allowance that tier grants its territory,
         /// and how many outposts the territory already holds. The tuning surface for the seeding pass.
         /// </summary>
+        /// <summary>
+        /// #6 growth validation: for the selected NPC settlement (or the first one found), report its
+        /// growth factors and simulate the population curve forward, so the approach to target is
+        /// verifiable via <c>run_debug_action</c> without waiting in-game. The simulation is a preview
+        /// under today's factors — it does not change the settlement's real modeled population.
+        /// </summary>
+        public static string SettlementGrowthReport(int tileId)
+        {
+            if (!UnityData.IsInMainThread) return "must run on the main thread";
+            if (Find.World == null || Find.WorldObjects == null) return "no world loaded";
+            var mgr = Find.World.GetComponent<SynapseRegionManager>();
+            if (mgr == null) return "no region manager";
+
+            WorldObject target = null;
+            foreach (var o in Find.WorldObjects.AllWorldObjects)
+            {
+                if (!WorldObjectClassifier.IsSettlement(o)) continue;
+                if (o.Faction != null && o.Faction.IsPlayer) continue;
+                if (tileId >= 0) { if (o.Tile == tileId) { target = o; break; } }
+                else { target = o; break; }
+            }
+            if (target == null) return tileId >= 0 ? "no NPC settlement on the selected tile" : "no NPC settlement found";
+
+            var inputs = SettlementGrowthUtility.BuildInputs(target);
+            // Growth capacity is the ⅔-max target; the tier max is the hard ceiling (150% of target).
+            int capacity = SettlementSizeUtility.TargetPopulationOf(target);
+            int tierMax = SettlementSizeUtility.MaxPopulationOf(target);
+            int now = mgr.GetModeledSettlementPopulation(target);
+
+            float mult = WorldObjectIntegrationSettings.growthRateMultiplier;
+            float fertility = BirthrateRules.Fertility(inputs) * mult;
+            float mortality = BirthrateRules.Mortality(inputs) * mult;
+            float netBelowTarget = fertility - mortality;   // headline rate below the target (crowding 1)
+
+            var sb = new StringBuilder();
+            sb.AppendLine("=== R&T settlement growth (#6) ===");
+            sb.AppendLine($"{target.LabelCap}  faction={Name(target.Faction)}  tech={target.Faction?.def?.techLevel}  tier={SettlementSizeUtility.TierOf(target)}");
+            sb.AppendLine($"target(⅔max)={capacity}  tierMax(ceiling)={tierMax}  current modeled pop={now}");
+            sb.AppendLine($"factors: fertileFraction={inputs.FertileFraction:0.000}  wealthLevel={inputs.WealthLevel:0.00}  food={inputs.FoodBalance:0.00}  ideoBias={inputs.IdeologyBias:0.000}  xenoBias={inputs.XenotypeBias:0.000}");
+            sb.AppendLine($"growth mult={mult:0.0}×  births={fertility * 100f:0.0}%/yr  deaths={mortality * 100f:0.0}%/yr  net(below target)={netBelowTarget * 100f:0.0}%/yr");
+
+            // Preview the curve forward, one year per step, under today's constant factors — it should
+            // climb toward the target, crowd above it, and settle just below the tier max as births taper
+            // to the death rate.
+            sb.AppendLine("year : modeled pop  (preview, constant factors)");
+            float sim = now;
+            for (int year = 0; year <= 40; year++)
+            {
+                if (year % 5 == 0) sb.AppendLine($"  {year,3} : {sim:0.0}  ({(tierMax > 0 ? sim / tierMax * 100f : 0f):0}% of tier max)");
+                sim = BirthrateRules.GrowStep(sim, capacity, fertility, mortality, 1f);
+            }
+            return sb.ToString().TrimEnd();
+        }
+
         public static string SettlementTierAllowanceReport()
         {
             if (!UnityData.IsInMainThread) return "must run on the main thread";
@@ -1048,9 +1345,10 @@ namespace RegionsAndSocieties.Integration
                 + $"  elders {demo.ageShares[(int)AgeBucket.Elder]:P0}");
             sb.AppendLine($"education (#15): index {demo.educationIndex}/100"
                 + $"    illiterate {demo.educationShares[(int)EducationTier.Illiterate]:P0}"
-                + $"  basic {demo.educationShares[(int)EducationTier.Basic]:P0}"
-                + $"  skilled {demo.educationShares[(int)EducationTier.Skilled]:P0}"
-                + $"  advanced {demo.educationShares[(int)EducationTier.Advanced]:P0}");
+                + $"  primary {demo.educationShares[(int)EducationTier.Primary]:P0}"
+                + $"  secondary {demo.educationShares[(int)EducationTier.Secondary]:P0}"
+                + $"  undergrad {demo.educationShares[(int)EducationTier.Undergrad]:P0}"
+                + $"  postgrad {demo.educationShares[(int)EducationTier.Postgrad]:P0}");
             sb.AppendLine($"socioeconomic (#14): index {demo.sesIndex}/100"
                 + $"    subsistence {demo.sesShares[(int)SesTier.Subsistence]:P0}"
                 + $"  modest {demo.sesShares[(int)SesTier.Modest]:P0}"

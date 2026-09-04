@@ -32,17 +32,18 @@ namespace RegionsAndSocieties
         // core reached around its own adapter layer to compensate. Populations now come only from
         // the adapter registry, and the typed adapter in VOE-CP cannot fail the way the profile did.
 
-        // Two arrays, two meanings, deliberately kept apart (#62 / #55):
-        //   cachedTilePopulations       - the *smeared* influence field: a settlement's head count
-        //                                 flooded outward with decay. Good for a heatmap gradient,
-        //                                 wrong for any total (summing the smear double-counts).
-        //   cachedTileSourcePopulations - the dwellings actually *at* a tile: the settlement's own
-        //                                 head count, or a natural pocket's capped size. This is what
-        //                                 the per-tile "Pawn dwellings" label shows and what province
-        //                                 population totals sum, so a region's population is the sum
-        //                                 of who lives in it, not the sum of everyone's influence on it.
+        // Two arrays with a history (#62 / #55): cachedTilePopulations was the unnormalised *smear*
+        // (heatmap only) and cachedTileSourcePopulations the dwellings *at* a tile (labels, totals).
+        // Since 0.3.0 the current algorithm fills both with ONE field — the conserved sprawl — so the
+        // heatmap, the "Pawn dwellings" label, province totals and the residence layer agree by
+        // construction. Legacy (0.7.1) worlds still get the old smear in both, exactly as they did.
         private static int[] cachedTilePopulations = null;
         private static int[] cachedTileSourcePopulations = null;
+        // Tiles that received part of a settlement's sprawl (0.3.0), so reports can tell sprawl from a
+        // natural pocket.
+        private static bool[] cachedTileIsSuburb = null;
+        // The densest tile in the world after the last refresh — the heatmap's top of scale.
+        private static int cachedMaxTilePopulation = 0;
         private static bool cacheDirty = true;
 
         // Natural-pocket realism (#62). A pocket that forms on its own stays small unless a landmark
@@ -80,7 +81,10 @@ namespace RegionsAndSocieties
         {
             if (Find.World == null || Find.WorldGrid == null) return;
             refreshingLegacy = IsLegacyDensity();
+            var swRefresh = System.Diagnostics.Stopwatch.StartNew();
             int count = Find.WorldGrid.TilesCount;
+            if (cachedTileIsSuburb == null || cachedTileIsSuburb.Length != count) cachedTileIsSuburb = new bool[count];
+            else System.Array.Clear(cachedTileIsSuburb, 0, count);
             if (cachedTilePopulations == null || cachedTilePopulations.Length != count)
             {
                 cachedTilePopulations = new int[count];
@@ -183,44 +187,58 @@ namespace RegionsAndSocieties
                 }
             }
 
-            // 3. Population propagation from sources
+            // 3. Population propagation from sources. The sprawl — the terrain-aware flood below (roads
+            //    and rivers carry people further, hills, swamps and coasts thin them, impassable ground
+            //    and sea stop them) — is the ONE population field (0.3.0): each settlement keeps a core
+            //    share on its own tile and the rest is spread over the tiles its sprawl reaches, in
+            //    proportion to the sprawl weight there, normalised so the total is conserved
+            //    (Demographics.SprawlRules). The heatmap, the per-tile label, region totals and the
+            //    residence layer all read this field, so a tinted tile always has people on it and a
+            //    region's total is the sum of who lives there. Legacy (0.7.1) worlds keep the old
+            //    unnormalised smear exactly. The pass is allocation-free per tile — one reusable
+            //    neighbour buffer and an int stamp array in place of a per-source HashSet.
+            var neighborBuf = new List<PlanetTile>(8);
+            int[] stamp = new int[count];   // stamp[t] == currentStamp  <=>  t visited for the current source
+            int currentStamp = 0;
+            var queue = new Queue<QueueEntry>();
+            var reachedTiles = new List<int>(512);
+            var reachedWeights = new List<float>(512);
+            var reachedShares = new List<float>(512);
+            float floodCutoff = refreshingLegacy ? 0.001f : Demographics.SprawlRules.WeightCutoff;
+
             foreach (var source in popSources)
             {
                 int startTileId = source.tileId;
+                if (startTileId < 0 || startTileId >= count) continue;
 
-                // The head count lives *here*. It flows outward into the smear below, but for totals
-                // and the tile label it must be counted once, at its own tile, and nowhere else (#55).
-                // Legacy worlds have no separate source field; their totals sum the smear, so this
-                // per-tile attribution is skipped and tempSource is overwritten with the smear below.
-                if (!refreshingLegacy && startTileId >= 0 && startTileId < count)
-                {
-                    tempSource[startTileId] += source.population;
-                }
-
+                // A PlanetTile for the start (the grid hands neighbours back as PlanetTiles, so fetch the
+                // start's own struct through a neighbour's neighbour list).
                 PlanetTile startPlanetTile = PlanetTile.Invalid;
-                var tempNeighbors = new List<PlanetTile>();
-                Find.WorldGrid.GetTileNeighbors(startTileId, tempNeighbors);
-                if (tempNeighbors.Any())
+                neighborBuf.Clear();
+                Find.WorldGrid.GetTileNeighbors(startTileId, neighborBuf);
+                if (neighborBuf.Count > 0)
                 {
-                    var doubleNeighbors = new List<PlanetTile>();
-                    Find.WorldGrid.GetTileNeighbors(tempNeighbors[0].tileId, doubleNeighbors);
-                    foreach (var t in doubleNeighbors)
+                    int firstNeighbor = neighborBuf[0].tileId;
+                    neighborBuf.Clear();
+                    Find.WorldGrid.GetTileNeighbors(firstNeighbor, neighborBuf);
+                    for (int k = 0; k < neighborBuf.Count; k++)
                     {
-                        if (t.tileId == startTileId)
-                        {
-                            startPlanetTile = t;
-                            break;
-                        }
+                        if (neighborBuf[k].tileId == startTileId) { startPlanetTile = neighborBuf[k]; break; }
                     }
                 }
+                if (startPlanetTile == PlanetTile.Invalid)
+                {
+                    // No neighbours at all (degenerate grid): the head count stays put.
+                    if (!refreshingLegacy) tempSource[startTileId] += source.population;
+                    continue;
+                }
 
-                if (startPlanetTile == PlanetTile.Invalid) continue;
-
-                var visited = new HashSet<int>();
-                var queue = new Queue<QueueEntry>();
-
+                currentStamp++;
+                queue.Clear();
+                reachedTiles.Clear();
+                reachedWeights.Clear();
                 queue.Enqueue(new QueueEntry(startPlanetTile, 1.0f));
-                visited.Add(startTileId);
+                stamp[startTileId] = currentStamp;
 
                 while (queue.Count > 0)
                 {
@@ -229,40 +247,98 @@ namespace RegionsAndSocieties
                     int currentTileId = currentTile.tileId;
                     float currentMultiplier = current.multiplier;
 
-                    if (currentMultiplier < 0.001f) continue;
+                    if (currentMultiplier < floodCutoff) continue;
 
-                    tempPops[currentTileId] += (source.population * currentMultiplier);
-
-                    var neighbors = new List<PlanetTile>();
-                    Find.WorldGrid.GetTileNeighbors(currentTileId, neighbors);
-                    foreach (var neighbor in neighbors)
+                    if (refreshingLegacy)
                     {
-                        int neighborId = neighbor.tileId;
-                        if (!visited.Contains(neighborId))
-                        {
-                            visited.Add(neighborId);
+                        tempPops[currentTileId] += (source.population * currentMultiplier);
+                    }
+                    else if (currentTileId != startTileId)
+                    {
+                        reachedTiles.Add(currentTileId);
+                        reachedWeights.Add(currentMultiplier);
+                    }
 
-                            float stepMultiplier = GetStepMultiplier(currentTile, neighbor);
-                            if (stepMultiplier > 0f)
-                            {
-                                queue.Enqueue(new QueueEntry(neighbor, currentMultiplier * stepMultiplier));
-                            }
+                    neighborBuf.Clear();
+                    Find.WorldGrid.GetTileNeighbors(currentTileId, neighborBuf);
+                    for (int k = 0; k < neighborBuf.Count; k++)
+                    {
+                        PlanetTile neighbor = neighborBuf[k];
+                        int neighborId = neighbor.tileId;
+                        if (neighborId < 0 || neighborId >= count || stamp[neighborId] == currentStamp) continue;
+                        stamp[neighborId] = currentStamp;
+
+                        float stepMultiplier = GetStepMultiplier(currentTile, neighbor);
+                        if (stepMultiplier > 0f)
+                        {
+                            queue.Enqueue(new QueueEntry(neighbor, currentMultiplier * stepMultiplier));
                         }
+                    }
+                }
+
+                if (!refreshingLegacy)
+                {
+                    // Hand the head count out: core share on the settlement tile, the rest over the
+                    // sprawl in proportion to its weights, total conserved.
+                    float centre = Demographics.SprawlRules.Spread(source.population, reachedWeights, reachedShares);
+                    tempSource[startTileId] += centre;
+                    for (int i = 0; i < reachedTiles.Count; i++)
+                    {
+                        float share = reachedShares[i];
+                        if (share <= 0f) continue;
+                        int t = reachedTiles[i];
+                        tempSource[t] += share;
+                        cachedTileIsSuburb[t] = true;
                     }
                 }
             }
 
+            int maxTile = 0;
             for (int i = 0; i < count; i++)
             {
-                cachedTilePopulations[i] = UnityEngine.Mathf.RoundToInt(tempPops[i]);
-                // Legacy worlds have no source/smear distinction: the per-tile label and province
-                // totals read the smeared field exactly as they did in 0.7.1 (overcount included).
-                cachedTileSourcePopulations[i] = refreshingLegacy
-                    ? cachedTilePopulations[i]
-                    : UnityEngine.Mathf.RoundToInt(tempSource[i]);
+                if (refreshingLegacy)
+                {
+                    // Legacy worlds have no source/smear distinction: the per-tile label and province
+                    // totals read the smeared field exactly as they did in 0.7.1 (overcount included).
+                    cachedTilePopulations[i] = UnityEngine.Mathf.RoundToInt(tempPops[i]);
+                    cachedTileSourcePopulations[i] = cachedTilePopulations[i];
+                }
+                else
+                {
+                    // One field: the conserved sprawl is what the heatmap colours AND what the label,
+                    // the totals and the residence layer count.
+                    int v = UnityEngine.Mathf.RoundToInt(tempSource[i]);
+                    cachedTilePopulations[i] = v;
+                    cachedTileSourcePopulations[i] = v;
+                }
+                if (cachedTilePopulations[i] > maxTile) maxTile = cachedTilePopulations[i];
             }
+            cachedMaxTilePopulation = maxTile;
 
             cacheDirty = false;
+
+            swRefresh.Stop();
+            // The refresh runs on every world-object change, so it is only worth a log line when it is
+            // actually slow — a regression guard, not a trace.
+            if (swRefresh.ElapsedMilliseconds >= 250)
+            {
+                Log.Message($"[RegionsAndSocieties] Density cache refresh: {popSources.Count} sources over {count} tiles in {swRefresh.ElapsedMilliseconds} ms.");
+            }
+        }
+
+
+        /// <summary>The densest tile in the world after the last refresh — the heatmap's top of scale.</summary>
+        public static int MaxTilePopulation()
+        {
+            EnsureCache();
+            return cachedMaxTilePopulation;
+        }
+
+        /// <summary>Whether the tile's population includes part of a settlement's sprawl (0.3.0).</summary>
+        public static bool IsSuburbTile(int tileId)
+        {
+            EnsureCache();
+            return cachedTileIsSuburb != null && tileId >= 0 && tileId < cachedTileIsSuburb.Length && cachedTileIsSuburb[tileId];
         }
 
         /// <summary>Force the density caches current if a world object has changed since the last read.</summary>
@@ -395,6 +471,12 @@ namespace RegionsAndSocieties
                 }
                 return 0;
             }
+
+            // NPC settlement: the modeled population grown over time by the birthrate model (#6),
+            // seeded and clamped to the settlement's cap by the region manager. Falls back to a static
+            // tech-based estimate only when there is no world/manager (e.g. very early load).
+            var mgr = Find.World?.GetComponent<SynapseRegionManager>();
+            if (mgr != null) return mgr.GetModeledSettlementPopulation(settlement);
 
             int basePop = 50;
             if (settlement.Faction != null)

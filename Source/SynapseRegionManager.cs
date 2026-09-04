@@ -14,22 +14,14 @@ namespace RegionsAndSocieties
         private int[] tileToProvinceId;
         private Dictionary<int, int> settlementPlacementOrder = new Dictionary<int, int>();
 
-        // Region-growth tuning (#3). MinFillFraction is the share of the value budget a region must
-        // fill unconditionally before it switches from filling to border-seeking. BarrierStepCost is
-        // the step-cost threshold that separates an open-terrain hop (base ~1, up to ~1.9 with the
-        // meander warp) from crossing a natural feature (mountain / water / river, each +12): a step
-        // at or above it is treated as crossing a boundary and is refused while border-seeking.
-        private const float MinFillFraction = 0.45f;
-        private const float BarrierStepCost = 3f;
-        // Minimum number of open-terrain links to the region required to annex a tile while
-        // border-seeking. 1 only refuses tiles reachable solely across a natural feature (the far
-        // side of a boundary); shape compactness is handled by the frontier priority, not this gate.
-        private const int CompactLinkMin = 1;
-        // How strongly the frontier prefers tiles already surrounded by the region over tiles that
-        // would extend a finger. Each not-yet-claimed neighbour adds this to the tile's priority
-        // (higher = later), so concavities fill first and regions grow as compact blobs. This is the
-        // only shape pressure in feature-poor terrain, so it must outweigh the ~1-per-tile distance.
-        private const float CompactWeight = 4f;
+        // Modeled population per NPC settlement (keyed by tile id), grown over time by the birthrate
+        // model (#6). Scribed so a settlement's size persists across saves. The player colony is never
+        // in here — its size is the real free-colonist count.
+        private Dictionary<int, float> settlementModeledPop = new Dictionary<int, float>();
+
+        // One in-game day between growth ticks — growth is measured in years, so a daily step is smooth
+        // and keeps the per-settlement sweep off the hot path.
+        private const int GrowthTickInterval = 60000;
 
         public int GetSettlementPlacementOrder(int tileId)
         {
@@ -99,9 +91,21 @@ namespace RegionsAndSocieties
             return tileToProvinceId[tileId];
         }
 
+        // O(1) id -> province index, rebuilt lazily whenever the province count changes (worldgen, merges).
+        // After generation the list is stable, so this stays valid; the count check catches any change
+        // without a manual invalidation call. GetProvince was an O(provinces) LINQ scan called per tile in
+        // the placement rules — an O(tiles × provinces) storm on the settle screen of a large world.
+        private Dictionary<int, GeographicProvince> _provinceById;
+
         public GeographicProvince GetProvince(int provinceId)
         {
-            return provinces.FirstOrDefault(p => p.id == provinceId);
+            if (provinces == null) return null;
+            if (_provinceById == null || _provinceById.Count != provinces.Count)
+            {
+                _provinceById = new Dictionary<int, GeographicProvince>(provinces.Count);
+                for (int i = 0; i < provinces.Count; i++) _provinceById[provinces[i].id] = provinces[i];
+            }
+            return _provinceById.TryGetValue(provinceId, out var prov) ? prov : null;
         }
 
         public GeographicProvince GetProvinceForTile(int tileId)
@@ -110,6 +114,19 @@ namespace RegionsAndSocieties
             if (pid == -1) return null;
             return GetProvince(pid);
         }
+
+        // The per-region dynamic population offset the #5/#8 passes accumulate on top of the derived base.
+        // Scribed, so a save keeps how its map has drifted. Effective population = base + this.
+        private Dictionary<int, float> regionPopulationDelta = new Dictionary<int, float>();
+
+        /// <summary>The dynamic population offset a region has accumulated from migration/accretion (#5/#8),
+        /// on top of its derived base. Zero for a region that has never moved.</summary>
+        public float PopulationDeltaOf(int regionId)
+            => regionPopulationDelta != null && regionPopulationDelta.TryGetValue(regionId, out float v) ? v : 0f;
+
+        /// <summary>Run a population-dynamics pass right now (the on-request path for the #5 endpoint and the
+        /// debug action), so a consumer never reads a stale number after an event. Returns people migrated.</summary>
+        public float RunPopulationDynamicsNow() => Integration.PopulationDynamics.RunPasses(this, regionPopulationDelta);
 
         // -1 unresolved, 0 compatibility (non-strict), 1 strict. An int rather than a bool because
         // "absent from this save" has to be distinguishable from "saved as false" — that
@@ -124,6 +141,52 @@ namespace RegionsAndSocieties
         public const int DensityAlgorithmLegacy = 1;
         public const int DensityAlgorithmCurrent = 2;
         private int densityAlgorithmVersionRaw = -1;
+
+        // Which region-partition algorithm built this world's provinces. Provinces ARE scribed, so an old
+        // save keeps its shapes on load without re-partitioning; this stamp exists so a REGEN (the debug
+        // action, or any future forced rebuild) reproduces the world with the algorithm it was born under,
+        // and so new worlds get the new method by default. -1 unresolved; 1 legacy (anchor-Voronoi
+        // PartitionLand, 0.2.x–early 0.3.0); 2 current (contain-then-subdivide PartitionByBasins).
+        public const int PartitionAlgorithmLegacy = 1;
+        public const int PartitionAlgorithmCurrent = 2;
+        private int partitionAlgorithmVersionRaw = -1;
+
+        /// <summary>
+        /// The partition algorithm in force for this world. Only a save explicitly resolved to legacy (a
+        /// world whose provinces predate the stamp) reports legacy; an unstamped live new world defaults
+        /// to current, so new games get the contain-then-subdivide partition.
+        /// </summary>
+        public int PartitionAlgorithmVersion
+        {
+            get { return partitionAlgorithmVersionRaw == PartitionAlgorithmLegacy ? PartitionAlgorithmLegacy : PartitionAlgorithmCurrent; }
+        }
+
+        // The mod's worldgen/rendering version, stamped onto a world when its provinces are generated, so a
+        // save records which build rendered it ("this is a 0.3.0 rendering"). Human-readable and finer than
+        // the binary partition selector above — bump it with each release that changes worldgen. Persisted;
+        // a save that predates the stamp resolves to a legacy label on load.
+        public const string WorldGenVersion = "0.3.0";
+        private string worldGenVersionRaw;
+
+        /// <summary>The worldgen version this world was rendered by: the stamped value, or a legacy label
+        /// for a save generated before the stamp existed.</summary>
+        public string WorldGenVersionLabel
+        {
+            get { return string.IsNullOrEmpty(worldGenVersionRaw) ? "0.2.x or earlier" : worldGenVersionRaw; }
+        }
+
+        // The partition algorithm this world was generated with (an IRegionPartitioner.AlgorithmId). This
+        // is the canonical, extensible successor to the binary PartitionAlgorithmVersion above: it is
+        // stamped at generation, scribed, and drives any regenerate — so a world always re-cuts with the
+        // algorithm it was born under, whichever mod supplied it. Empty until stamped / resolved on load.
+        private string regionAlgorithmId;
+
+        /// <summary>The id of the partition algorithm that generated this world (see
+        /// <see cref="Partition.IRegionPartitioner"/>). Falls back to the current default if unresolved.</summary>
+        public string RegionAlgorithmId
+        {
+            get { return string.IsNullOrEmpty(regionAlgorithmId) ? Partition.RegionPartitionerRegistry.DefaultAlgorithmId : regionAlgorithmId; }
+        }
 
         /// <summary>
         /// The density algorithm in force for this world. Only a save explicitly resolved to legacy
@@ -251,6 +314,57 @@ namespace RegionsAndSocieties
             ResolveDensityAlgorithmForLoadedSave();
         }
 
+        /// <summary>
+        /// Decide the partition algorithm for a save that predates the stamp. Same discriminator as the
+        /// density stamp — <b>provinces, not the flag</b>: a world that already has generated provinces
+        /// was built by the legacy partition and keeps it (its shapes are scribed and must not shift if
+        /// regenerated), while a save with no provinces is one R&amp;T is partitioning now for the first
+        /// time and gets the current contain-then-subdivide algorithm.
+        /// </summary>
+        private void ResolvePartitionAlgorithmForLoadedSave()
+        {
+            if (partitionAlgorithmVersionRaw != -1) return;
+
+            bool hadProvinces = provinces != null && provinces.Count > 0;
+            partitionAlgorithmVersionRaw = hadProvinces ? PartitionAlgorithmLegacy : PartitionAlgorithmCurrent;
+
+            Log.Message(hadProvinces
+                ? "[RegionsAndSocieties] Save predates the partition-algorithm stamp but has provinces: keeping the legacy (anchor-Voronoi) region shapes so a regenerate would not repartition this world."
+                : "[RegionsAndSocieties] Save has no province data: regions will be built with the current contain-then-subdivide partition.");
+        }
+
+        /// <summary>Resolve the worldgen-version stamp for a save that predates it: a save that already has
+        /// provinces was rendered by an early build (label it), one with none is being rendered now.</summary>
+        private void ResolveWorldGenVersionForLoadedSave()
+        {
+            if (!string.IsNullOrEmpty(worldGenVersionRaw)) return;
+            bool hadProvinces = provinces != null && provinces.Count > 0;
+            worldGenVersionRaw = hadProvinces ? "0.2.x or earlier" : WorldGenVersion;
+        }
+
+        /// <summary>Resolve the partition-algorithm id for a save that predates it: derive it from the
+        /// (already-resolved) binary partition-version stamp — legacy worlds map to anchor-Voronoi, all
+        /// others to the contain-then-subdivide default — so a regenerate still reproduces the same map.</summary>
+        private void ResolveRegionAlgorithmForLoadedSave()
+        {
+            if (!string.IsNullOrEmpty(regionAlgorithmId)) return;
+            regionAlgorithmId = PartitionAlgorithmVersion == PartitionAlgorithmLegacy
+                ? Partition.RegionPartitionerRegistry.LegacyAlgorithmId
+                : Partition.RegionPartitionerRegistry.DefaultAlgorithmId;
+        }
+
+        /// <summary>Test seam: force the partition algorithm back to unresolved.</summary>
+        public void ResetPartitionAlgorithmForTesting()
+        {
+            partitionAlgorithmVersionRaw = -1;
+        }
+
+        /// <summary>Test seam: run the partition load-time decision directly, without a save round trip.</summary>
+        public void ResolvePartitionAlgorithmForTesting()
+        {
+            ResolvePartitionAlgorithmForLoadedSave();
+        }
+
         /// <summary>Set when a save is adopted into compatibility mode; cleared once the player has been told.</summary>
         private bool pendingCompatibilityNotice;
 
@@ -264,9 +378,30 @@ namespace RegionsAndSocieties
         {
             base.WorldComponentTick();
 
+            // Self-heal: a world whose provinces are empty regenerates here on a tick, so the partition is
+            // always present without waiting for an overlay to ask for it. Normal worlds build their
+            // provinces at worldgen, so this only fires for a save deliberately blanked to re-test the
+            // partition on frozen terrain (the reproducible-test fixture).
+            if ((provinces == null || provinces.Count == 0) && Find.WorldGrid != null)
+            {
+                var _ = Provinces;
+            }
+
             if (Find.TickManager != null && Find.TickManager.TicksGame % DemographicDecayInterval == 0)
             {
                 Demographics.RegionDemographicsStress.Tick(DemographicDecayInterval);
+            }
+
+            if (Find.TickManager != null && Find.TickManager.TicksGame % GrowthTickInterval == 0)
+            {
+                AdvanceSettlementGrowth(GrowthTickInterval);
+            }
+
+            // Population dynamics (#5/#8): every 10 days, AFTER growth, so the write order is grow → accrete
+            // → migrate on the shared delta. Governance-off is handled inside RunPasses.
+            if (Find.TickManager != null && Find.TickManager.TicksGame % Integration.PopulationDynamics.CadenceTicks == 0)
+            {
+                Integration.PopulationDynamics.RunPasses(this, regionPopulationDelta);
             }
 
             if (!pendingCompatibilityNotice) return;
@@ -288,6 +423,93 @@ namespace RegionsAndSocieties
                 LetterDefOf.NeutralEvent);
         }
 
+        /// <summary>
+        /// The modeled population of an NPC settlement (#6), seeding a fresh one at a third of its
+        /// target on first read and clamping to its current cap. The player colony is never modeled —
+        /// callers read its real free-colonist count instead.
+        /// </summary>
+        public int GetModeledSettlementPopulation(WorldObject settlement)
+        {
+            if (settlement == null) return 0;
+            if (settlementModeledPop == null) settlementModeledPop = new Dictionary<int, float>();
+
+            int tile = settlement.Tile;
+            if (!settlementModeledPop.TryGetValue(tile, out float pop))
+            {
+                pop = Sizing.SettlementGrowthUtility.SeedPopulation(settlement);
+                settlementModeledPop[tile] = pop;
+            }
+
+            // Growth capacity is the ⅔-max TARGET, not the tier max. Full births run up to the target;
+            // above it births taper, stagnating at 150% of the target — which, since target = ⅔ max, is
+            // exactly the tier max. So a healthy settlement crowds toward but never past its tier max.
+            int capacity = Sizing.SettlementSizeUtility.TargetPopulationOf(settlement);
+            return ClampToCeiling((int)Math.Round(pop, MidpointRounding.AwayFromZero), capacity);
+        }
+
+        /// <summary>
+        /// Advance every NPC settlement's modeled population one growth step (#6): net rate from the
+        /// birthrate factor model, applied as a logistic drift toward the settlement's ⅔-max target over
+        /// the elapsed years. Prunes settlements that no longer exist and marks the population cache
+        /// dirty so overlays reflect the new sizes. The player colony is skipped — real pawns only.
+        /// </summary>
+        // Population may crowd above the ⅔-max target up to the birth-stagnation ceiling (150% of the
+        // target = the tier max); clamp at the ceiling, so a well-fed settlement can grow past its
+        // comfortable size but never past its tier max (#6).
+        private static int ClampToCeiling(int v, int capacity)
+        {
+            if (v < 0) v = 0;
+            int ceil = (int)Math.Round(capacity * Sizing.BirthrateRules.BirthStagnationRatio, MidpointRounding.AwayFromZero);
+            if (capacity > 0 && v > ceil) v = ceil;
+            return v;
+        }
+
+        private void AdvanceSettlementGrowth(int intervalTicks)
+        {
+            if (Find.WorldObjects == null) return;
+            if (settlementModeledPop == null) settlementModeledPop = new Dictionary<int, float>();
+
+            float years = intervalTicks / (float)GenDate.TicksPerYear;
+            var live = new HashSet<int>();
+
+            foreach (var obj in Find.WorldObjects.AllWorldObjects)
+            {
+                if (obj == null || !Integration.WorldObjectClassifier.IsSettlement(obj)) continue;
+                if (obj.Faction != null && obj.Faction.IsPlayer) continue;   // player = real pawns
+
+                int tile = obj.Tile;
+                live.Add(tile);
+
+                if (!settlementModeledPop.TryGetValue(tile, out float pop))
+                    pop = Sizing.SettlementGrowthUtility.SeedPopulation(obj);
+
+                // Capacity is the ⅔-max target; births taper above it and stagnate at 150% of it (= tier max).
+                int capacity = Sizing.SettlementSizeUtility.TargetPopulationOf(obj);
+                var inputs = Sizing.SettlementGrowthUtility.BuildInputs(obj);
+                // Scale births and deaths together by the pacing multiplier — the balance point is
+                // unchanged, only the speed. Growth runs toward the target and stagnates at the tier max.
+                float mult = Integration.WorldObjectIntegrationSettings.growthRateMultiplier;
+                float fertility = Sizing.BirthrateRules.Fertility(inputs) * mult;
+                float mortality = Sizing.BirthrateRules.Mortality(inputs) * mult;
+                float next = Sizing.BirthrateRules.GrowStep(pop, capacity, fertility, mortality, years);
+                settlementModeledPop[tile] = next;
+
+                // Publish the change at the integer level so a consumer sees growth events (no-op with
+                // no consumer). Rounded+clamped the same way GetModeledSettlementPopulation reports it.
+                int before = ClampToCeiling((int)Math.Round(pop, MidpointRounding.AwayFromZero), capacity);
+                int after = ClampToCeiling((int)Math.Round(next, MidpointRounding.AwayFromZero), capacity);
+                Sizing.SettlementGrowthHooks.Report(obj, before, after);
+            }
+
+            if (settlementModeledPop.Count > live.Count)
+            {
+                var stale = settlementModeledPop.Keys.Where(k => !live.Contains(k)).ToList();
+                foreach (int k in stale) settlementModeledPop.Remove(k);
+            }
+
+            PopulationDensityUtility.MarkCacheDirty();
+        }
+
         public override void ExposeData()
         {
             base.ExposeData();
@@ -303,10 +525,33 @@ namespace RegionsAndSocieties
             }
             Scribe_Values.Look(ref densityAlgorithmVersionRaw, "densityAlgorithmVersion", -1);
 
+            // Same stamp-on-first-save rule as the density version: an unresolved algorithm at save time
+            // is a live new world running current code (it never hit the load-time resolver), so it is
+            // current by construction; a loaded pre-stamp save was resolved to legacy before any save.
+            if (Scribe.mode == LoadSaveMode.Saving && partitionAlgorithmVersionRaw == -1)
+            {
+                partitionAlgorithmVersionRaw = PartitionAlgorithmCurrent;
+            }
+            Scribe_Values.Look(ref partitionAlgorithmVersionRaw, "partitionAlgorithmVersion", -1);
+
+            // Worldgen/rendering version stamp — persisted; resolved for pre-stamp saves in PostLoadInit.
+            Scribe_Values.Look(ref worldGenVersionRaw, "worldGenVersion");
+            // The partition algorithm id this world was generated with — persisted; a save predating the
+            // id derives it from the binary partition-version stamp in PostLoadInit.
+            Scribe_Values.Look(ref regionAlgorithmId, "regionAlgorithmId");
+
             Scribe_Collections.Look(ref provinces, "provinces", LookMode.Deep);
             if (provinces == null)
             {
                 provinces = new List<GeographicProvince>();
+            }
+
+            // Dynamic population offsets accumulated by the #5/#8 passes — scribed so a save keeps how its
+            // map has drifted from the derived baseline.
+            Scribe_Collections.Look(ref regionPopulationDelta, "regionPopulationDelta", LookMode.Value, LookMode.Value);
+            if (regionPopulationDelta == null)
+            {
+                regionPopulationDelta = new Dictionary<int, float>();
             }
 
             // 0.8: sparse demographic stress overrides. The demographic baseline is deterministic
@@ -317,6 +562,9 @@ namespace RegionsAndSocieties
             {
                 ResolveStrictOwnershipForLoadedSave();
                 ResolveDensityAlgorithmForLoadedSave();
+                ResolvePartitionAlgorithmForLoadedSave();
+                ResolveWorldGenVersionForLoadedSave();
+                ResolveRegionAlgorithmForLoadedSave();
 
                 // Population is cached statically and survives across loads within one process; drop
                 // it so the next read rebuilds under the algorithm just resolved for this world.
@@ -328,6 +576,19 @@ namespace RegionsAndSocieties
             {
                 settlementPlacementOrder = new Dictionary<int, int>();
             }
+
+            // Modeled NPC settlement populations (#6): the size a settlement has grown to, persisted so
+            // growth continues across saves rather than reseeding.
+            Scribe_Collections.Look(ref settlementModeledPop, "settlementModeledPop", LookMode.Value, LookMode.Value);
+            if (settlementModeledPop == null)
+            {
+                settlementModeledPop = new Dictionary<int, float>();
+            }
+
+            // One-time repair flag for the pre-0.3.0 "every faction generated hidden" bug (#32). Old saves
+            // lack this key, so it loads false and the repair runs once on FinalizeInit; new/repaired worlds
+            // scribe true and skip it forever.
+            Scribe_Values.Look(ref factionHiddenMigrationDone, "factionHiddenMigrationDone", false);
 
             List<int> tempList = null;
             if (Scribe.mode == LoadSaveMode.Saving)
@@ -363,6 +624,76 @@ namespace RegionsAndSocieties
             }
         }
 
+        /// <summary>Set once the pre-0.3.0 hidden-faction repair (#32) has been attempted for this world.</summary>
+        private bool factionHiddenMigrationDone;
+
+        public override void FinalizeInit(bool fromLoad)
+        {
+            base.FinalizeInit(fromLoad);
+            MigrateHiddenFactions();
+
+            // Precompute every land region's demographic aggregate now, on the loading screen, so opening
+            // any demographic overlay (age, sex, wealth, education, …) later is an instant cache hit rather
+            // than a cold O(tiles × sources) aggregation that freezes the frame it is opened on.
+            Demographics.RegionDemographicsUtility.WarmAllRegions(this);
+        }
+
+        /// <summary>
+        /// One-time repair for worlds generated before 0.3.0, where a bug (#32) created EVERY ordinary
+        /// faction hidden — absent from the Factions tab, with no goodwill and no leader. Runs once per
+        /// world (scribed flag) and is signature-gated so it never exposes factions another mod hides on
+        /// purpose: it fires only when the bug's fingerprint is present — at least three ordinary
+        /// (non-player, non-def-hidden) factions exist and at least half of them are instance-hidden.
+        /// It only un-hides instances (and regenerates a missing leader); it never deletes a faction,
+        /// since settlements, relations and quests may reference it.
+        /// </summary>
+        private void MigrateHiddenFactions()
+        {
+            if (factionHiddenMigrationDone) return;
+            factionHiddenMigrationDone = true;   // attempt once, whatever the outcome
+
+            var factionManager = Find.FactionManager;
+            if (factionManager == null) return;
+
+            var ordinary = factionManager.AllFactions
+                .Where(f => f != null && !f.IsPlayer && f.def != null && !f.def.isPlayer && !f.def.hidden)
+                .ToList();
+            if (ordinary.Count < 3) return;
+
+            var hiddenOnes = ordinary.Where(f => f.Hidden).ToList();
+            // Signature: >= 3 ordinary factions hidden AND >= 50% of the ordinary factions hidden.
+            if (hiddenOnes.Count < 3 || hiddenOnes.Count < ordinary.Count * 0.5f) return;
+
+            int repaired = 0;
+            var needLeaders = new List<Faction>();
+            foreach (var faction in hiddenOnes)
+            {
+                faction.hidden = faction.def.hidden;   // = false for an ordinary def
+                if (!faction.Hidden && faction.leader == null) needLeaders.Add(faction);
+                repaired++;
+            }
+
+            // Un-hiding is the essential repair and is done above. Leader generation, however, walks pawn
+            // and ideo state that is NOT fully wired up this early in a load (it NREs for some factions in
+            // FinalizeInit), so defer it until the load long-event completes and the world is live.
+            if (needLeaders.Count > 0)
+            {
+                LongEventHandler.ExecuteWhenFinished(() =>
+                {
+                    foreach (var f in needLeaders)
+                    {
+                        if (f == null || f.Hidden || f.leader != null) continue;
+                        try { f.TryGenerateNewLeader(); }
+                        catch (System.Exception e)
+                        {
+                            Log.Warning($"[RegionsAndSocieties] #32 migration: deferred leader regen for '{f.Name}' threw: {e.Message}");
+                        }
+                    }
+                });
+            }
+            Log.Message($"[RegionsAndSocieties] #32 migration: restored {repaired} faction(s) that a pre-0.3.0 bug created hidden (visibility/goodwill; leaders generated once the load completes).");
+        }
+
         /// <summary>
         /// Rebuild the tile-&gt;province reverse index from the provinces' own tile lists — the
         /// authoritative partition (deep-scribed). Idempotent on a healthy world; a repair on a save
@@ -396,19 +727,15 @@ namespace RegionsAndSocieties
             Log.Message($"[RegionsAndSocieties] Rebuilt tile->province index from {provinces.Count} provinces ({mapped} tiles mapped).");
         }
 
-        private bool HasRiver(int tileId)
+        /// <summary>True for a tile that is impassable rock (never traversable on the world map): the
+        /// Impassable hilliness, or an impassable / sea-ice biome. These become non-owned MountainRange
+        /// provinces, not territory. Passable Mountainous/LargeHills are NOT impassable and stay claimable.</summary>
+        private static bool IsImpassableTile(Tile td)
         {
-            if (Find.WorldGrid == null) return false;
-            List<RimWorld.Planet.PlanetTile> neighbors = new List<RimWorld.Planet.PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(tileId, neighbors);
-            foreach (var n in neighbors)
-            {
-                if (Find.WorldGrid.GetRiverDef(tileId, n.tileId) != null || Find.WorldGrid.GetRiverDef(n.tileId, tileId) != null)
-                {
-                    return true;
-                }
-            }
-            return false;
+            if (td == null) return false;
+            if (td.hilliness == Hilliness.Impassable) return true;
+            BiomeDef b = td.PrimaryBiome;
+            return b != null && (b.impassable || b.defName == "SeaIce");
         }
 
         private BiomeDef GetPrimaryBiome(List<int> chunk)
@@ -426,6 +753,10 @@ namespace RegionsAndSocieties
         public void GenerateProvinces()
         {
             Log.Message("[RegionsAndSocieties] Generating Geographic Domains (Boundary-First Priority)...");
+
+            // Stamp the worldgen version the first time a world is rendered. Guarded so a legacy REGEN
+            // (which loaded an already-stamped save) never relabels an old world as a new-build rendering.
+            if (string.IsNullOrEmpty(worldGenVersionRaw)) worldGenVersionRaw = WorldGenVersion;
 
             // A world generating provinces with the flag still unresolved is a brand new world:
             // a loaded save resolves it in PostLoadInit, which runs before anything can reach the
@@ -455,403 +786,158 @@ namespace RegionsAndSocieties
 
             int provinceIdCounter = 0;
 
-            // Pre-calculate river neighbor count for all tiles
-            int[] riverNeighborCount = new int[totalTiles];
-            List<RimWorld.Planet.PlanetTile> tempNeighbors = new List<RimWorld.Planet.PlanetTile>();
-            for (int i = 0; i < totalTiles; i++)
-            {
-                if (tileToProvinceId[i] != -1 || !HasRiver(i)) continue;
+            // Rivers no longer form their own provinces (#20). Under the border-first, river-basin
+            // model a river is the CENTRE of a land province, not a boundary — the old river-segment
+            // provinces and their Phase 4.5 absorption (which produced the 1-tile river tails) are
+            // gone. River tiles instead seed the basin markers inside BorderPartitioner.
 
-                int count = 0;
-                tempNeighbors.Clear();
-                Find.WorldGrid.GetTileNeighbors(i, tempNeighbors);
-                foreach (var n in tempNeighbors)
-                {
-                    if (HasRiver(n.tileId) && (Find.WorldGrid.GetRiverDef(i, n.tileId) != null || Find.WorldGrid.GetRiverDef(n.tileId, i) != null))
-                    {
-                        count++;
-                    }
-                }
-                riverNeighborCount[i] = count;
-            }
-
-            // Phase 2: Rivers (tiles with river def, split at forks)
-            bool[] riverVisited = new bool[totalTiles];
-
-            // Pass A: Seed only from non-fork tiles (degree < 3) to build segments outwards
-            for (int i = 0; i < totalTiles; i++)
-            {
-                if (tileToProvinceId[i] != -1 || riverVisited[i] || !HasRiver(i)) continue;
-                if (riverNeighborCount[i] >= 3) continue; // Skip forks in first seed pass
-
-                List<int> riverSegment = new List<int>();
-                Queue<int> queue = new Queue<int>();
-                queue.Enqueue(i);
-                riverVisited[i] = true;
-
-                List<RimWorld.Planet.PlanetTile> neighbors = new List<RimWorld.Planet.PlanetTile>();
-                while (queue.Count > 0)
-                {
-                    int current = queue.Dequeue();
-                    riverSegment.Add(current);
-
-                    // If this tile is a fork, do not propagate past it (act as boundary point)
-                    if (riverNeighborCount[current] >= 3) continue;
-
-                    neighbors.Clear();
-                    Find.WorldGrid.GetTileNeighbors(current, neighbors);
-                    foreach (var n in neighbors)
-                    {
-                        int nid = n.tileId;
-                        if (tileToProvinceId[nid] == -1 && !riverVisited[nid] && HasRiver(nid) && 
-                            (Find.WorldGrid.GetRiverDef(current, nid) != null || Find.WorldGrid.GetRiverDef(nid, current) != null))
-                        {
-                            riverVisited[nid] = true;
-                            queue.Enqueue(nid);
-                        }
-                    }
-                }
-
-                if (riverSegment.Count > 0)
-                {
-                    GeographicProvince domain = new GeographicProvince(provinceIdCounter);
-                    domain.tiles = riverSegment.ToList();
-                    domain.provinceType = ProvinceType.River;
-                    domain.primaryBiome = GetPrimaryBiome(riverSegment);
-                    domain.name = GenerateProvinceName(provinceIdCounter, domain.primaryBiome, domain.provinceType);
-
-                    foreach (int tileId in riverSegment)
-                    {
-                        tileToProvinceId[tileId] = provinceIdCounter;
-                    }
-                    provinces.Add(domain);
-                    provinceIdCounter++;
-                }
-            }
-
-            // Pass B: Collect any remaining/isolated fork tiles
-            for (int i = 0; i < totalTiles; i++)
-            {
-                if (tileToProvinceId[i] != -1 || riverVisited[i] || !HasRiver(i)) continue;
-
-                List<int> riverSegment = new List<int>();
-                Queue<int> queue = new Queue<int>();
-                queue.Enqueue(i);
-                riverVisited[i] = true;
-
-                List<RimWorld.Planet.PlanetTile> neighbors = new List<RimWorld.Planet.PlanetTile>();
-                while (queue.Count > 0)
-                {
-                    int current = queue.Dequeue();
-                    riverSegment.Add(current);
-
-                    neighbors.Clear();
-                    Find.WorldGrid.GetTileNeighbors(current, neighbors);
-                    foreach (var n in neighbors)
-                    {
-                        int nid = n.tileId;
-                        if (tileToProvinceId[nid] == -1 && !riverVisited[nid] && HasRiver(nid) && 
-                            (Find.WorldGrid.GetRiverDef(current, nid) != null || Find.WorldGrid.GetRiverDef(nid, current) != null))
-                        {
-                            riverVisited[nid] = true;
-                            queue.Enqueue(nid);
-                        }
-                    }
-                }
-
-                if (riverSegment.Count > 0)
-                {
-                    GeographicProvince domain = new GeographicProvince(provinceIdCounter);
-                    domain.tiles = riverSegment.ToList();
-                    domain.provinceType = ProvinceType.River;
-                    domain.primaryBiome = GetPrimaryBiome(riverSegment);
-                    domain.name = GenerateProvinceName(provinceIdCounter, domain.primaryBiome, domain.provinceType);
-
-                    foreach (int tileId in riverSegment)
-                    {
-                        tileToProvinceId[tileId] = provinceIdCounter;
-                    }
-                    provinces.Add(domain);
-                    provinceIdCounter++;
-                }
-            }
-
-            // Phase 4: Land Valleys (remaining hospitable land tiles, excluding WaterCovered and Impassable ones)
-            bool[] landVisited = new bool[totalTiles];
             int baseMin = FactionPlacementSettings.minRegionSize;
             int baseMax = FactionPlacementSettings.maxRegionSize;
 
             int minWithFeatures = baseMin - 5;
             int minNoFeatures = baseMin + 5;
-            int maxWithFeatures = baseMax + 30;
-            int maxNoFeatures = baseMax + 10;
 
-            // Phase 2.5: Water wastes. Flood-fill contiguous barren WATER (ocean, sea ice) into their
-            // own regions and claim their tiles so the land growth skips them — keeps open water out
-            // of land regions. Dry barren land (desert) is deliberately NOT claimed here: it flows
-            // into the value-budgeted, terrain-aware growth below, so a desert splits at its mountains
-            // and rivers, and its resource pockets seed regions rather than being stranded as
-            // enclaves (#3/#49).
+            // Phase 2.5: Water. Flood-fill every contiguous WATER body — ocean, sea ice, lakes — into
+            // its own Ocean-type province and claim the tiles, so the land partition skips them (water
+            // is the hard wall the border-first fill never spans) and the open sea is owned rather than
+            // left as a black hole. NOTE: RimWorld's Ocean biome is itself flagged impassable, so this
+            // must NOT filter on biome.impassable (that skipped the entire ocean and left it unclaimed,
+            // #20) — WaterCovered alone selects water. Impassable LAND (mountain peaks) is a different
+            // case and is left for AbsorbEnclosedGaps below. Small inland lakes claimed here are folded
+            // back into their surrounding land by AbsorbInlandLakes; the big ocean bodies stay as
+            // provinces.
             {
-                var barrenNbrs = new List<RimWorld.Planet.PlanetTile>();
+                var waterNbrs = new List<RimWorld.Planet.PlanetTile>();
                 for (int i = 0; i < totalTiles; i++)
                 {
                     if (tileToProvinceId[i] != -1) continue;
                     Tile td = Find.WorldGrid[i];
-                    if (td.hilliness == Hilliness.Impassable || (td.PrimaryBiome != null && td.PrimaryBiome.impassable)) continue;
-                    // Water wastes only (ocean, sea ice). Dry barren land (desert) now flows into the
-                    // value-budgeted, terrain-aware growth so it splits at mountains/rivers and its
-                    // resource pockets become region seeds instead of enclaves (#3/#49).
-                    if (!td.WaterCovered || !GeographicProvince.IsBarrenBiome(td.PrimaryBiome)) continue;
+                    if (!td.WaterCovered) continue;
 
-                    var barren = new List<int>();
+                    var body = new List<int>();
                     var bq = new Queue<int>();
                     bq.Enqueue(i);
                     tileToProvinceId[i] = provinceIdCounter;
                     while (bq.Count > 0)
                     {
                         int cur = bq.Dequeue();
-                        barren.Add(cur);
-                        barrenNbrs.Clear();
-                        Find.WorldGrid.GetTileNeighbors(cur, barrenNbrs);
-                        foreach (var n in barrenNbrs)
+                        body.Add(cur);
+                        waterNbrs.Clear();
+                        Find.WorldGrid.GetTileNeighbors(cur, waterNbrs);
+                        foreach (var n in waterNbrs)
                         {
                             int nid = n.tileId;
                             if (tileToProvinceId[nid] != -1) continue;
-                            Tile nd = Find.WorldGrid[nid];
-                            if (nd.hilliness == Hilliness.Impassable || (nd.PrimaryBiome != null && nd.PrimaryBiome.impassable)) continue;
-                            if (!nd.WaterCovered || !GeographicProvince.IsBarrenBiome(nd.PrimaryBiome)) continue;
+                            if (!Find.WorldGrid[nid].WaterCovered) continue;
                             tileToProvinceId[nid] = provinceIdCounter;
                             bq.Enqueue(nid);
                         }
                     }
 
-                    var barrenDom = new GeographicProvince(provinceIdCounter);
-                    barrenDom.tiles = barren;
-                    barrenDom.provinceType = ProvinceType.Ocean;
-                    barrenDom.primaryBiome = GetPrimaryBiome(barren);
-                    barrenDom.name = GenerateProvinceName(provinceIdCounter, barrenDom.primaryBiome, barrenDom.provinceType);
-                    provinces.Add(barrenDom);
+                    var waterDom = new GeographicProvince(provinceIdCounter);
+                    waterDom.tiles = body;
+                    waterDom.provinceType = ProvinceType.Ocean;
+                    waterDom.primaryBiome = GetPrimaryBiome(body);
+                    waterDom.name = GenerateProvinceName(provinceIdCounter, waterDom.primaryBiome, waterDom.provinceType);
+                    provinces.Add(waterDom);
                     provinceIdCounter++;
                 }
             }
 
-            for (int i = 0; i < totalTiles; i++)
+            // Phase 2.6: Impassable mountains. Flood every contiguous body of unclaimed IMPASSABLE land
+            // (Hilliness.Impassable, or an impassable / sea-ice biome that is not water) into its own
+            // MountainRange province and claim the tiles. Like the ocean pass, this makes the land
+            // partition treat impassable rock as a hard wall AND keeps it out of any faction's territory —
+            // impassable peaks are terrain, not land anyone holds, and are excluded from ownership, the
+            // territory overlay, population and economy alongside Ocean. Passable mountains and hills are
+            // NOT claimed here; they stay claimable interior for the partition, so hills no longer fragment
+            // the land into slivers.
             {
-                Tile tileData = Find.WorldGrid[i];
-                if (tileToProvinceId[i] != -1 || landVisited[i] || tileData.hilliness == Hilliness.Impassable || (tileData.PrimaryBiome != null && tileData.PrimaryBiome.impassable)) continue;
-
-                List<int> landPocket = new List<int>();
-                Queue<int> queue = new Queue<int>();
-                queue.Enqueue(i);
-                landVisited[i] = true;
-
-                List<RimWorld.Planet.PlanetTile> neighbors = new List<RimWorld.Planet.PlanetTile>();
-                while (queue.Count > 0)
+                var impNbrs = new List<RimWorld.Planet.PlanetTile>();
+                for (int i = 0; i < totalTiles; i++)
                 {
-                    int current = queue.Dequeue();
-                    landPocket.Add(current);
+                    if (tileToProvinceId[i] != -1) continue;
+                    Tile td = Find.WorldGrid[i];
+                    if (td.WaterCovered || !IsImpassableTile(td)) continue;
 
-                    neighbors.Clear();
-                    Find.WorldGrid.GetTileNeighbors(current, neighbors);
-                    foreach (var n in neighbors)
+                    var body = new List<int>();
+                    var bq = new Queue<int>();
+                    bq.Enqueue(i);
+                    tileToProvinceId[i] = provinceIdCounter;
+                    while (bq.Count > 0)
                     {
-                        int nid = n.tileId;
-                        Tile neighborData = Find.WorldGrid[nid];
-                        if (tileToProvinceId[nid] == -1 && !landVisited[nid] && neighborData.hilliness != Hilliness.Impassable && (neighborData.PrimaryBiome == null || !neighborData.PrimaryBiome.impassable))
+                        int cur = bq.Dequeue();
+                        body.Add(cur);
+                        impNbrs.Clear();
+                        Find.WorldGrid.GetTileNeighbors(cur, impNbrs);
+                        foreach (var n in impNbrs)
                         {
-                            landVisited[nid] = true;
-                            queue.Enqueue(nid);
+                            int nid = n.tileId;
+                            if (tileToProvinceId[nid] != -1) continue;
+                            Tile nt = Find.WorldGrid[nid];
+                            if (nt.WaterCovered || !IsImpassableTile(nt)) continue;
+                            tileToProvinceId[nid] = provinceIdCounter;
+                            bq.Enqueue(nid);
                         }
                     }
-                }
 
-                if (landPocket.Count == 0) continue;
-
-                bool hasFeatures = ChunkHasNaturalFeatures(landPocket);
-                float pointCap = hasFeatures ? maxWithFeatures : maxNoFeatures;
-
-                // Always partition by terrain-aware, value-budgeted growth (#3/#49): the point cap is
-                // the size limit, so this single call does region design AND sizing together — no
-                // keep-whole special case and no post-hoc carve. Rich land yields compact regions,
-                // barren waste sprawls, water is absorbed for almost nothing.
-                List<List<int>> subPockets = GrowTerrainBoundedRegions(landPocket, pointCap);
-                foreach (var pocket in subPockets)
-                {
-                    if (pocket.Count == 0) continue;
-
-                    GeographicProvince domain = new GeographicProvince(provinceIdCounter);
-                    domain.tiles = pocket.ToList();
-                    domain.provinceType = ProvinceType.Land;
-                    domain.primaryBiome = GetPrimaryBiome(pocket);
-                    domain.name = GenerateProvinceName(provinceIdCounter, domain.primaryBiome, domain.provinceType);
-
-                    foreach (int tileId in pocket)
-                    {
-                        tileToProvinceId[tileId] = provinceIdCounter;
-                    }
-                    provinces.Add(domain);
+                    var mtn = new GeographicProvince(provinceIdCounter);
+                    mtn.tiles = body;
+                    mtn.provinceType = ProvinceType.MountainRange;
+                    mtn.primaryBiome = GetPrimaryBiome(body);
+                    mtn.name = GenerateProvinceName(provinceIdCounter, mtn.primaryBiome, mtn.provinceType);
+                    provinces.Add(mtn);
                     provinceIdCounter++;
                 }
             }
-            // Phase 4.5: River Segmentation & Connection (Absorb rivers and small lakes into bordering Land/Ocean/Lake provinces)
-            List<GeographicProvince> finalProvinces = provinces.Where(p => p.provinceType != ProvinceType.River).ToList();
-            List<GeographicProvince> riverProvinces = provinces.Where(p => p.provinceType == ProvinceType.River).ToList();
 
-            // Cache province types for O(1) lookups
-            Dictionary<int, ProvinceType> provinceTypeMap = provinces.ToDictionary(p => p.id, p => p.provinceType);
+            // Phase 4: border-first land partition (#20). The water/ocean provinces claimed above are
+            // the hard walls; BorderPartitioner floods the remaining land into cells bounded by
+            // natural feature transitions (ridges, biome edges, forest bands, coasts) and splits any
+            // oversized cell into river basins by a marker-controlled watershed — so borders sit on
+            // features, basins centre on rivers, and region size varies with the terrain. This
+            // replaces the grow-first frontier and its Phase 4.5 river absorption in one pass.
+            // New worlds (and regens of new-partition worlds) use the contain-then-subdivide partition:
+            // flood each biome/barrier-bounded section into one container, then cut it into biome-weighted
+            // squares. A legacy world keeps the anchor-Voronoi PartitionLand so a regenerate never reshapes
+            // an existing save.
+            // Resolve the partition algorithm from the registry (pluggable — a mod can add its own). A
+            // world already stamped with an algorithm (a regenerate of an existing world) reproduces with
+            // THAT algorithm; a brand-new world takes the one selected in mod settings. Either way the
+            // resolved id is stamped now, so a later regenerate is faithful and the save records it.
+            string requestedAlgo = !string.IsNullOrEmpty(regionAlgorithmId)
+                ? regionAlgorithmId
+                : FactionPlacementSettings.partitionAlgorithmId;
+            var partitioner = Partition.RegionPartitionerRegistry.Get(requestedAlgo)
+                ?? Partition.RegionPartitionerRegistry.Default;
+            regionAlgorithmId = partitioner != null ? partitioner.AlgorithmId : requestedAlgo;
+            // Keep the legacy binary stamp consistent with the chosen algorithm.
+            partitionAlgorithmVersionRaw = regionAlgorithmId == Partition.RegionPartitionerRegistry.LegacyAlgorithmId
+                ? PartitionAlgorithmLegacy : PartitionAlgorithmCurrent;
 
-            Dictionary<int, int> resolvedRiverTiles = new Dictionary<int, int>();
-            List<int> unresolvedRiverTiles = new List<int>();
-
-            foreach (var rp in riverProvinces)
+            var swPartition = System.Diagnostics.Stopwatch.StartNew();
+            var landGroups = partitioner != null
+                ? partitioner.Partition(tileToProvinceId, baseMin, baseMax)
+                : Partition.BorderPartitioner.PartitionContainSubdivide(tileToProvinceId, baseMin, baseMax);
+            swPartition.Stop();
+            Log.Message($"[RegionsAndSocieties] Land partition: '{regionAlgorithmId}' produced {landGroups.Count} land groups in {swPartition.ElapsedMilliseconds} ms.");
+            foreach (var group in landGroups)
             {
-                foreach (int t in rp.tiles)
+                if (group.Count == 0) continue;
+
+                GeographicProvince domain = new GeographicProvince(provinceIdCounter);
+                domain.tiles = group.ToList();
+                domain.provinceType = ProvinceType.Land;
+                domain.primaryBiome = GetPrimaryBiome(group);
+                domain.name = GenerateProvinceName(provinceIdCounter, domain.primaryBiome, domain.provinceType);
+
+                foreach (int tileId in group)
                 {
-                    unresolvedRiverTiles.Add(t);
+                    tileToProvinceId[tileId] = provinceIdCounter;
                 }
+                provinces.Add(domain);
+                provinceIdCounter++;
             }
-
-            // Find all contiguous water bodies that are small (< 25 tiles) and mark them for absorption
-            bool[] waterVisited = new bool[totalTiles];
-            for (int i = 0; i < totalTiles; i++)
-            {
-                Tile tileData = Find.WorldGrid[i];
-                if (!tileData.WaterCovered || waterVisited[i]) continue;
-
-                List<int> waterBody = new List<int>();
-                Queue<int> queue = new Queue<int>();
-                queue.Enqueue(i);
-                waterVisited[i] = true;
-
-                List<RimWorld.Planet.PlanetTile> subNeighbors = new List<RimWorld.Planet.PlanetTile>();
-                while (queue.Count > 0)
-                {
-                    int current = queue.Dequeue();
-                    waterBody.Add(current);
-
-                    subNeighbors.Clear();
-                    Find.WorldGrid.GetTileNeighbors(current, subNeighbors);
-                    foreach (var n in subNeighbors)
-                    {
-                        if (!waterVisited[n.tileId] && Find.WorldGrid[n.tileId].WaterCovered)
-                        {
-                            waterVisited[n.tileId] = true;
-                            queue.Enqueue(n.tileId);
-                        }
-                    }
-                }
-
-                // A water body is absorbed if it is an inland lake (contains no ocean biome tiles)
-                bool isOcean = false;
-                foreach (int tileId in waterBody)
-                {
-                    var biome = Find.WorldGrid[tileId].PrimaryBiome;
-                    if (biome != null && (biome.defName.ToLower().Contains("ocean") || biome.LabelCap.ToString().ToLower().Contains("ocean")))
-                    {
-                        isOcean = true;
-                        break;
-                    }
-                }
-
-                if (!isOcean)
-                {
-                    // Per-water-body logging removed (one Log.Message per lake × many lakes = worldgen churn).
-                    foreach (int tileId in waterBody)
-                    {
-                        unresolvedRiverTiles.Add(tileId);
-                    }
-                }
-            }
-
-            List<RimWorld.Planet.PlanetTile> connectNeighbors = new List<RimWorld.Planet.PlanetTile>();
-            int connectSafety = 0;
-            while (unresolvedRiverTiles.Count > 0 && connectSafety < 10)
-            {
-                connectSafety++;
-                List<int> nextUnresolved = new List<int>();
-
-                foreach (int t in unresolvedRiverTiles)
-                {
-                    connectNeighbors.Clear();
-                    Find.WorldGrid.GetTileNeighbors(t, connectNeighbors);
-
-                    int bestProvinceId = -1;
-                    Dictionary<int, int> provWeights = new Dictionary<int, int>();
-
-                    foreach (var n in connectNeighbors)
-                    {
-                        int nid = n.tileId;
-                        int pid = tileToProvinceId[nid];
-                        if (pid != -1)
-                        {
-                            if (provinceTypeMap.TryGetValue(pid, out var type) && type != ProvinceType.River)
-                            {
-                                if (!provWeights.ContainsKey(pid)) provWeights[pid] = 0;
-                                provWeights[pid]++;
-                            }
-                        }
-                    }
-
-                    if (provWeights.Any())
-                    {
-                        bestProvinceId = provWeights.OrderByDescending(kv => kv.Value).First().Key;
-                    }
-
-                    if (bestProvinceId != -1)
-                    {
-                        resolvedRiverTiles[t] = bestProvinceId;
-                        tileToProvinceId[t] = bestProvinceId;
-                        // Also update the mapped type so that subsequent iterations can see it
-                        provinceTypeMap[t] = provinceTypeMap[bestProvinceId];
-                    }
-                    else
-                    {
-                        nextUnresolved.Add(t);
-                    }
-                }
-
-                if (nextUnresolved.Count == unresolvedRiverTiles.Count)
-                {
-                    // Force assign remaining unresolved tiles to any adjacent non-river province
-                    foreach (int t in nextUnresolved)
-                    {
-                        connectNeighbors.Clear();
-                        Find.WorldGrid.GetTileNeighbors(t, connectNeighbors);
-                        foreach (var n in connectNeighbors)
-                        {
-                            int pid = tileToProvinceId[n.tileId];
-                            if (pid != -1)
-                            {
-                                if (provinceTypeMap.TryGetValue(pid, out var type) && type != ProvinceType.River)
-                                {
-                                    resolvedRiverTiles[t] = pid;
-                                    tileToProvinceId[t] = pid;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    break;
-                }
-
-                unresolvedRiverTiles = nextUnresolved;
-            }
-
-            // Apply river tile absorption
-            foreach (var kvp in resolvedRiverTiles)
-            {
-                int tileId = kvp.Key;
-                int destProvinceId = kvp.Value;
-                var destProv = finalProvinces.FirstOrDefault(p => p.id == destProvinceId);
-                if (destProv != null)
-                {
-                    destProv.tiles.Add(tileId);
-                    tileToProvinceId[tileId] = destProvinceId;
-                }
-            }
-
-            provinces = finalProvinces;
 
             // Deduplicate tiles to ensure thread-safety for Map Mode Framework rendering
             HashSet<int> assignedTiles = new HashSet<int>();
@@ -876,18 +962,57 @@ namespace RegionsAndSocieties
             MergeTinyDomains(minWithFeatures, minNoFeatures);
             Log.Message("[RegionsAndSocieties] Finished MergeTinyDomains.");
 
-            // Phase 5b removed (#3/#49): the size cap is now enforced during growth by the value
-            // budget in GrowTerrainBoundedRegions, so there is no oversized region to re-carve and no
-            // crude carve to undo the terrain-following boundaries. EnforceMaxRegionSize is retained
-            // as a method for now but no longer called.
+            // Phase 5a: fold a land region ENTIRELY enclosed by one other land region into that region —
+            // an enclave/inclusion (e.g. a small biome patch inside a big region) reads as part of its
+            // encloser, never its own territory. Judged over land-region neighbours only, so it runs
+            // regardless of biome and after the biome-aware merge leaves such slivers behind.
+            AbsorbEnclosedRegions();
+
+            // Phase 5a2: a small passable speck sealed entirely by impassable rock (no land, no water)
+            // reads as part of the massif, not a 1-tile territory — fold it into the surrounding
+            // MountainRange. Islands (water neighbours) and genuine enclosed valleys (larger) are left.
+            AbsorbMountainSealedSpecks(MountainSpeckMaxTiles);
+
+            // Phase 5b1: dissolve small inland lakes into the surrounding land (#20). Phase 2.5 floods
+            // every barren water body — including a small inland lake — into its own water province; a
+            // lake ringed entirely by land reads better as part of that land region than as a stranded
+            // pond province, so fold it into its dominant land neighbour.
+            AbsorbInlandLakes();
 
             // Phase 5b2: fold impassable-mountain (and other unclaimed, non-water) pockets that are
             // fully enclosed by a single region INTO that region, so they read as owned terrain rather
             // than holes punched in the map (#3).
             AbsorbEnclosedGaps();
 
-            // Phase 5c: relax jagged boundaries and swallow single-tile land islands.
-            SmoothRegionBoundaries(5);
+            // Phase 5b3: split ribbon-shaped provinces (#20). A cell sized just over the guide rounds
+            // to one basin and can stay a long snaking valley; break any province whose principal-axis
+            // ratio is too high into compact halves across its short axis. Runs AFTER the merge so the
+            // halves are not immediately re-absorbed. The viability floor is deliberately below the
+            // merge minimum so a moderately-sized ribbon still splits — a pair of small blobs reads
+            // far better than one long snake.
+            SplitElongatedProvinces(FactionPlacementSettings.minRegionSize * 2 / 3);
+
+            // Phase 5c: erode pendant tails and single-tile protrusions (#20). Border-first cells
+            // follow natural features, but the watershed clips and feature-edge zigzags still leave
+            // 1-tile-wide appendages; a light majority-vote relaxation folds a tile wrapped more by a
+            // neighbour than by its own province back into that neighbour, straightening the ragged
+            // edges without touching feature borders (water/impassable neighbours never vote).
+            SmoothRegionBoundaries(8);
+
+            // Phase 5c.1: enforce contiguity. A merge/absorb pass can leave a region as two DETACHED land
+            // masses — a component sharing no hex edge with the rest of its region (separated by water or
+            // another region). A region is by definition one connected landmass, so split any region with
+            // more than one hex-connected component: the largest keeps the id, the rest become their own
+            // regions (an island is legitimately its own region). Runs before the final AbsorbStrayFragments
+            // so a sub-minimum spun-off piece that turns out to sit against a same-biome neighbour still
+            // gets folded in.
+            SplitDisconnectedRegions();
+
+            // Phase 5d: final consolidation. Splitting and straightening run after the merge, so they can
+            // leave a small same-biome fragment newly adjacent to the big region it belongs to (e.g. a
+            // desert sliver against the main desert) that the earlier merge never got to see. Fold any
+            // sub-minimum land region into its dominant same-biome passable neighbour.
+            AbsorbStrayFragments();
 
             // Naming Phase: Contextual Name Resolution
             Log.Message("[RegionsAndSocieties] Running contextual province naming...");
@@ -898,6 +1023,171 @@ namespace RegionsAndSocieties
             BuildProvinceTopology();
 
             Log.Message($"[RegionsAndSocieties] Generated {provinces.Count} Geographic Domains.");
+        }
+
+        /// <summary>
+        /// Fold every sub-minimum land region into its dominant same-biome, passable neighbour. Runs LAST,
+        /// after split + straighten, to catch a fragment whose same-biome connection to the region it
+        /// belongs to only formed once those passes moved tiles — the ordering gap that left a stray sliver
+        /// (601) next to the desert it is part of (235). Same-biome only, so it never mixes biomes; iterated
+        /// because folding one fragment can bring another below the threshold's dominant share.
+        /// </summary>
+        private void AbsorbStrayFragments()
+        {
+            if (provinces == null || tileToProvinceId == null || Find.WorldGrid == null) return;
+            int minR = FactionPlacementSettings.minRegionSize;
+            var neighbors = new List<RimWorld.Planet.PlanetTile>();
+            int folded = 0;
+            bool changed = true; int guard = 0;
+            while (changed && guard++ < 8)
+            {
+                changed = false;
+                var byId = provinces.ToDictionary(p => p.id, p => p);
+                var toRemove = new HashSet<GeographicProvince>();
+                foreach (var p in provinces)
+                {
+                    if (p.provinceType != ProvinceType.Land || p.tiles == null || p.tiles.Count == 0 || toRemove.Contains(p)) continue;
+                    if (p.tiles.Count >= minR) continue;
+                    BiomeDef pb = p.primaryBiome;
+
+                    var sameBiomeEdges = new Dictionary<int, int>();
+                    foreach (int t in p.tiles)
+                    {
+                        if (IsBarrierTile(t) || BiomeOfTile(t) != pb) continue;
+                        neighbors.Clear();
+                        Find.WorldGrid.GetTileNeighbors(t, neighbors);
+                        foreach (var n in neighbors)
+                        {
+                            if (IsBarrierTile(n.tileId) || BiomeOfTile(n.tileId) != pb) continue;
+                            int np = GetProvinceId(n.tileId);
+                            if (np == p.id || np == -1) continue;
+                            if (!byId.TryGetValue(np, out var nprov) || nprov.provinceType != ProvinceType.Land
+                                || nprov.primaryBiome != pb || toRemove.Contains(nprov)) continue;
+                            int c; sameBiomeEdges.TryGetValue(np, out c); sameBiomeEdges[np] = c + 1;
+                        }
+                    }
+                    if (sameBiomeEdges.Count == 0) continue;
+
+                    int bestId = -1, bestC = 0;
+                    foreach (var kv in sameBiomeEdges) if (kv.Value > bestC || (kv.Value == bestC && kv.Key < bestId)) { bestC = kv.Value; bestId = kv.Key; }
+                    if (bestId >= 0 && byId.TryGetValue(bestId, out var host))
+                    {
+                        foreach (int tileId in p.tiles) { host.tiles.Add(tileId); tileToProvinceId[tileId] = host.id; }
+                        toRemove.Add(p); changed = true; folded++;
+                    }
+                }
+                if (toRemove.Count > 0) provinces.RemoveAll(p => toRemove.Contains(p));
+            }
+            Log.Message($"[RegionsAndSocieties] AbsorbStrayFragments: folded {folded} stray same-biome fragment(s).");
+        }
+
+        /// <summary>Largest passable speck (in tiles) folded into a surrounding impassable massif. Above
+        /// this a fully mountain-sealed pocket is treated as a genuine enclosed valley and kept.</summary>
+        private const int MountainSpeckMaxTiles = 15;
+
+        /// <summary>
+        /// Fold every small passable land region whose neighbours are ENTIRELY impassable MountainRange
+        /// (no other land, no water, no unclaimed tile) into the surrounding mountain province. Such a
+        /// speck is a habitable dot sealed inside a massif; it reads as terrain, not a territory. Islands
+        /// (water neighbours) and larger enclosed valleys are untouched.
+        /// </summary>
+        private void AbsorbMountainSealedSpecks(int maxTiles)
+        {
+            if (provinces == null || tileToProvinceId == null || Find.WorldGrid == null) return;
+            var byId = provinces.ToDictionary(p => p.id, p => p);
+            var neighbors = new List<RimWorld.Planet.PlanetTile>();
+            var toRemove = new HashSet<GeographicProvince>();
+            foreach (var p in provinces)
+            {
+                if (p.provinceType != ProvinceType.Land || p.tiles == null || p.tiles.Count == 0) continue;
+                if (p.tiles.Count > maxTiles) continue;
+
+                bool sealedByMtn = true; int mtnProv = -1;
+                foreach (int tile in p.tiles)
+                {
+                    neighbors.Clear();
+                    Find.WorldGrid.GetTileNeighbors(tile, neighbors);
+                    foreach (var n in neighbors)
+                    {
+                        int pid = GetProvinceId(n.tileId);
+                        if (pid == p.id) continue;
+                        if (pid == -1) { sealedByMtn = false; break; }
+                        if (!byId.TryGetValue(pid, out var np) || np.provinceType != ProvinceType.MountainRange
+                            || toRemove.Contains(np)) { sealedByMtn = false; break; }
+                        if (mtnProv == -1) mtnProv = pid;   // fold into the first surrounding massif
+                    }
+                    if (!sealedByMtn) break;
+                }
+
+                if (sealedByMtn && mtnProv >= 0 && byId.TryGetValue(mtnProv, out var mprov))
+                {
+                    foreach (int tileId in p.tiles) { mprov.tiles.Add(tileId); tileToProvinceId[tileId] = mprov.id; }
+                    toRemove.Add(p);
+                }
+            }
+            if (toRemove.Count > 0) provinces.RemoveAll(p => toRemove.Contains(p));
+            Log.Message($"[RegionsAndSocieties] AbsorbMountainSealedSpecks: folded {toRemove.Count} speck(s) into surrounding mountains.");
+        }
+
+        /// <summary>Largest inland lake (in tiles) still folded into its surrounding land (#20). Bigger
+        /// water bodies stay their own provinces.</summary>
+        private const int InlandLakeMaxTiles = 40;
+
+        /// <summary>
+        /// Dissolve small inland lakes into their dominant land neighbour (#20). A water province that is
+        /// small and touches no other water province is a pond ringed by land; its tiles read better as
+        /// part of that land region. Larger lakes and any water touching the sea are left alone.
+        /// </summary>
+        private void AbsorbInlandLakes()
+        {
+            if (provinces == null || tileToProvinceId == null || Find.WorldGrid == null) return;
+
+            var byId = provinces.ToDictionary(p => p.id, p => p);
+            var neighbors = new List<RimWorld.Planet.PlanetTile>();
+            var toRemove = new List<GeographicProvince>();
+            int absorbed = 0;
+
+            foreach (var lake in provinces)
+            {
+                if (lake.provinceType != ProvinceType.Ocean || lake.tiles == null) continue;
+                if (lake.tiles.Count == 0 || lake.tiles.Count > InlandLakeMaxTiles) continue;
+
+                // Tally land neighbours by shared edges; bail if it touches any other water province
+                // (then it is a sea inlet, not an enclosed pond).
+                var landEdges = new Dictionary<int, int>();
+                bool touchesWater = false;
+                foreach (int t in lake.tiles)
+                {
+                    neighbors.Clear();
+                    Find.WorldGrid.GetTileNeighbors(t, neighbors);
+                    foreach (var n in neighbors)
+                    {
+                        int npid = GetProvinceId(n.tileId);
+                        if (npid < 0 || npid == lake.id) continue;
+                        if (!byId.TryGetValue(npid, out var np)) continue;
+                        if (np.provinceType == ProvinceType.Ocean) { touchesWater = true; break; }
+                        if (np.provinceType == ProvinceType.Land)
+                        {
+                            int c; landEdges.TryGetValue(npid, out c); landEdges[npid] = c + 1;
+                        }
+                    }
+                    if (touchesWater) break;
+                }
+                if (touchesWater || landEdges.Count == 0) continue;
+
+                int bestId = -1, bestEdges = -1;
+                foreach (var kv in landEdges)
+                    if (kv.Value > bestEdges || (kv.Value == bestEdges && kv.Key < bestId)) { bestEdges = kv.Value; bestId = kv.Key; }
+                if (bestId < 0 || !byId.TryGetValue(bestId, out var host)) continue;
+
+                foreach (int t in lake.tiles) { host.tiles.Add(t); tileToProvinceId[t] = host.id; }
+                toRemove.Add(lake);
+                absorbed += lake.tiles.Count;
+            }
+
+            foreach (var p in toRemove) provinces.Remove(p);
+            if (absorbed > 0)
+                Log.Message($"[RegionsAndSocieties] Absorbed {toRemove.Count} inland lake(s) ({absorbed} tiles) into surrounding land.");
         }
 
         /// <summary>
@@ -974,16 +1264,148 @@ namespace RegionsAndSocieties
             }
         }
 
+        // Split a province when its principal-axis ratio exceeds this — a long ribbon rather than a
+        // basin. ~1.7 is the target (golden-ish) shape; 2.2 is where it reads as a fail.
+        private const float ElongationTrigger = 2.2f;
+        private const float ElongationTarget = 1.7f;
+
         /// <summary>
-        /// Curvature-smooth jagged region boundaries and swallow land islands (#3).
-        ///
-        /// <para>The value-budgeted growth follows terrain but leaves boundaries 3-4x longer than a
-        /// compact shape would have, where two frontiers interlocked tile-by-tile. A majority-vote
-        /// relaxation shortens them: a land tile wrapped more by a neighbouring region than by its own
-        /// is reassigned to that neighbour, eroding convex spikes and filling concave notches while
-        /// leaving straight and gently-curved edges (three-plus same-region neighbours) in place.
-        /// Water, rivers and impassable tiles never count, so real coastlines are never rounded off.
-        /// Iterating several passes lets multi-tile excursions resolve from the outside in.</para>
+        /// Break ribbon-shaped land provinces into compact pieces (#20). Region size is allowed to vary,
+        /// but a province stretched into a long valley reads as a partition failure even at a normal
+        /// size. For each land province whose <see cref="Partition.BorderPartitioner.Elongation"/>
+        /// exceeds <see cref="ElongationTrigger"/> and which is big enough for the pieces to stay viable,
+        /// split it across its short axis into 2-3 blobs. Deterministic; runs after the merge so the
+        /// pieces survive, and its seams are tidied by the smoothing pass that follows.
+        /// </summary>
+        private void SplitElongatedProvinces(int minViable)
+        {
+            if (provinces == null || tileToProvinceId == null || Find.WorldGrid == null) return;
+            if (minViable < 20) minViable = 20;
+
+            int nextId = provinces.Count > 0 ? provinces.Max(p => p.id) + 1 : 0;
+            var toAdd = new List<GeographicProvince>();
+            int split = 0;
+
+            // Snapshot: we mutate the list as we go.
+            foreach (var p in provinces.ToList())
+            {
+                if (p.provinceType != ProvinceType.Land || p.tiles == null) continue;
+                if (p.tiles.Count < 2 * minViable) continue;
+
+                float aspect = Partition.BorderPartitioner.Elongation(p.tiles);
+                if (aspect < ElongationTrigger) continue;
+
+                int byAspect = Mathf.RoundToInt(aspect / ElongationTarget);
+                int byViable = p.tiles.Count / minViable;
+                int pieces = Mathf.Clamp(Mathf.Min(byAspect, byViable), 2, 3);
+                if (pieces < 2) continue;
+
+                var groups = Partition.BorderPartitioner.SplitTiles(p.tiles, pieces);
+                if (groups.Count < 2) continue;
+
+                // Largest piece keeps p's identity; the rest become new provinces.
+                groups.Sort((a, b) => b.Count.CompareTo(a.Count));
+                p.tiles = groups[0];
+                foreach (int t in p.tiles) tileToProvinceId[t] = p.id;
+                p.primaryBiome = GetPrimaryBiome(p.tiles);
+
+                for (int g = 1; g < groups.Count; g++)
+                {
+                    var np = new GeographicProvince(nextId++);
+                    np.tiles = groups[g];
+                    np.provinceType = ProvinceType.Land;
+                    np.primaryBiome = GetPrimaryBiome(groups[g]);
+                    np.name = GenerateProvinceName(np.id, np.primaryBiome, np.provinceType);
+                    foreach (int t in groups[g]) tileToProvinceId[t] = np.id;
+                    toAdd.Add(np);
+                }
+                split++;
+            }
+
+            provinces.AddRange(toAdd);
+            if (split > 0)
+                Log.Message($"[RegionsAndSocieties] Split {split} elongated province(s) into {split + toAdd.Count} pieces.");
+        }
+
+        /// <summary>
+        /// Enforce region contiguity (region-106 bug). A merge or absorb pass can leave a land region as
+        /// two DETACHED masses — a component that shares no hex edge with the rest of its region (across
+        /// water or another region), which reads on the map as one province spanning two separate
+        /// landmasses. A region is by definition one connected landmass, so split any multi-component
+        /// region: the largest component keeps the region's id and name, each other component becomes its
+        /// own new region (an island is legitimately its own region). Uses TRUE hex adjacency
+        /// (GetTileNeighbors), so it is exact where a spatial heuristic is not.
+        /// </summary>
+        private void SplitDisconnectedRegions()
+        {
+            if (provinces == null || tileToProvinceId == null || Find.WorldGrid == null) return;
+            int nextId = provinces.Count > 0 ? provinces.Max(p => p.id) + 1 : 0;
+            var neighbors = new List<RimWorld.Planet.PlanetTile>();
+            var toAdd = new List<GeographicProvince>();
+            int splitRegions = 0, newPieces = 0;
+
+            foreach (var p in provinces)
+            {
+                if (p.provinceType != ProvinceType.Land || p.tiles == null || p.tiles.Count <= 1) continue;
+
+                var members = new HashSet<int>(p.tiles);
+                var seen = new HashSet<int>();
+                var components = new List<List<int>>();
+                var stack = new Stack<int>();
+                foreach (int start in p.tiles)
+                {
+                    if (seen.Contains(start)) continue;
+                    var comp = new List<int>();
+                    stack.Clear(); stack.Push(start); seen.Add(start);
+                    while (stack.Count > 0)
+                    {
+                        int cur = stack.Pop();
+                        comp.Add(cur);
+                        neighbors.Clear();
+                        Find.WorldGrid.GetTileNeighbors(cur, neighbors);
+                        for (int i = 0; i < neighbors.Count; i++)
+                        {
+                            int nid = neighbors[i].tileId;
+                            if (members.Contains(nid) && !seen.Contains(nid)) { seen.Add(nid); stack.Push(nid); }
+                        }
+                    }
+                    components.Add(comp);
+                }
+
+                if (components.Count <= 1) continue;
+
+                // Largest component keeps p's identity; the rest spin off into their own regions.
+                components.Sort((a, b) => b.Count.CompareTo(a.Count));
+                p.tiles = components[0];
+                p.primaryBiome = GetPrimaryBiome(p.tiles);
+                for (int c = 1; c < components.Count; c++)
+                {
+                    var np = new GeographicProvince(nextId++);
+                    np.tiles = components[c];
+                    np.provinceType = ProvinceType.Land;
+                    np.primaryBiome = GetPrimaryBiome(components[c]);
+                    np.name = GenerateProvinceName(np.id, np.primaryBiome, np.provinceType);
+                    foreach (int t in components[c]) tileToProvinceId[t] = np.id;
+                    toAdd.Add(np);
+                    newPieces++;
+                }
+                splitRegions++;
+            }
+
+            provinces.AddRange(toAdd);
+            if (splitRegions > 0)
+                Log.Message($"[RegionsAndSocieties] SplitDisconnectedRegions: split {splitRegions} region(s) into {newPieces} extra piece(s) to enforce contiguity.");
+        }
+
+        /// <summary>
+        /// Erode pendant tails and 1-tile protrusions from land provinces (#20). A majority-vote
+        /// relaxation: a land tile wrapped by a neighbouring land province more than by its own
+        /// (bestCount &gt; same, with same &lt;= 2 so straight and gently-curved edges are left alone) sits
+        /// on a spike or a chain-tip, and moving it to that neighbour shortens the border. Water,
+        /// rivers-as-edges and impassable tiles never vote, so real coastlines and feature borders are
+        /// preserved. Iterated over a few passes so multi-tile tails resolve from the tip inward. This
+        /// is the border-first counterpart to the grow-first smoothing that was removed with the
+        /// grower — kept deliberately light, targeting only the raggedness the audit flags.
         /// </summary>
         private void SmoothRegionBoundaries(int passes)
         {
@@ -1004,6 +1426,7 @@ namespace RegionsAndSocieties
                 {
                     int pid = tileToProvinceId[t];
                     if (pid < 0 || !landIds.Contains(pid)) continue;
+                    if (IsBarrierTile(t)) continue;                      // don't shuffle draped crest/coast tiles between regions
 
                     neighbors.Clear();
                     Find.WorldGrid.GetTileNeighbors(t, neighbors);
@@ -1013,21 +1436,33 @@ namespace RegionsAndSocieties
                     {
                         int np = tileToProvinceId[n.tileId];
                         if (np < 0 || !landIds.Contains(np)) continue;   // coast/river/impassable edge: keep it
+                        if (IsBarrierTile(n.tileId)) continue;           // never erode toward/across a hard wall (water/impassable)
+                        // NOTE: biome edges are deliberately NOT blocked here. Shearing is bounded to
+                        // protrusions (same<=2 + spike/tendril), so a straight biome border is never
+                        // touched, but a 1-tile spider or a border snaking through a THICK biome-transition
+                        // band gets shortened toward the straightest line through that band — the pure-biome
+                        // cores stay put because their tiles have same>2 and never qualify.
                         landNeighbours++;
                         if (np == pid) { same++; continue; }
                         int c; counts.TryGetValue(np, out c); c++; counts[np] = c;
                         if (c > bestCount) { bestCount = c; bestId = np; }
                     }
 
-                    // Curvature smoothing: if a neighbouring land region wraps this tile more than its
-                    // own does (bestCount > same), the tile sits on a convex spike or in a concave
-                    // notch of the boundary, and moving it there shortens the total border. Restricting
-                    // to same <= 2 keeps straight and gently-curved edges (same >= 3) untouched, so only
-                    // the jagged excursions erode. Iterated over several passes this pulls a 3-4x-too-
-                    // long boundary down toward the compact ideal without flattening real coastlines
-                    // (feature edges never count toward either tally).
-                    if (landNeighbours >= 3 && same <= 2 && bestId != -1 && bestCount > same)
-                        reassign[t] = bestId;
+                    // Two erosion cases, both requiring a foreign land neighbour to move into:
+                    //   spike   — one neighbour wraps this tile more than its own province does;
+                    //   tendril — more of this tile's land neighbours are foreign than are its own, i.e.
+                    //             it sits on a 1-wide chain, even one running BETWEEN two provinces
+                    //             (which the spike rule alone misses, since neither foreign province
+                    //             need out-wrap the two chain neighbours). Both keep same<=2 so straight
+                    //             and gently-curved borders are untouched; iterated, they shorten a
+                    //             tail one tile per pass from the tip inward.
+                    if (bestId != -1 && same <= 2)
+                    {
+                        int foreign = landNeighbours - same;
+                        bool spike = landNeighbours >= 3 && bestCount > same;
+                        bool tendril = foreign > same;
+                        if (spike || tendril) reassign[t] = bestId;
+                    }
                 }
 
                 if (reassign.Count == 0) break;
@@ -1049,501 +1484,29 @@ namespace RegionsAndSocieties
             provinces.RemoveAll(p => landIds.Contains(p.id) && p.tiles.Count == 0);
         }
 
-        private bool ChunkHasNaturalFeatures(List<int> chunk)
+        /// <summary>True when a tile is a hard natural barrier the region passes must not merge or smooth
+        /// across: water, or impassable rock / sea-ice. This matches the partition's wall set exactly —
+        /// passable Mountainous / LargeHills are NOT barriers, they are claimable interior — so a region of
+        /// passable mountain can still merge, and the recombine honours the same seams the fill did. An
+        /// out-of-range or null tile reads as a barrier (safe default: never a merge seam).</summary>
+        private static bool IsBarrierTile(int tile)
         {
-            HashSet<int> chunkSet = new HashSet<int>(chunk);
-            List<RimWorld.Planet.PlanetTile> neighbors = new List<RimWorld.Planet.PlanetTile>();
-
-            foreach (int tile in chunk)
-            {
-                neighbors.Clear();
-                Find.WorldGrid.GetTileNeighbors(tile, neighbors);
-                foreach (var n in neighbors)
-                {
-                    int neighborId = n.tileId;
-                    if (chunkSet.Contains(neighborId))
-                    {
-                        if (Find.WorldGrid.GetRiverDef(tile, neighborId) != null || Find.WorldGrid.GetRiverDef(neighborId, tile) != null)
-                        {
-                            return true;
-                        }
-                        if (Find.WorldGrid[tile].hilliness == Hilliness.Mountainous || Find.WorldGrid[neighborId].hilliness == Hilliness.Mountainous)
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-            return false;
-        }
-
-        private bool RegionHasNaturalBoundaries(GeographicProvince p)
-        {
-            List<RimWorld.Planet.PlanetTile> neighbors = new List<RimWorld.Planet.PlanetTile>();
-            foreach (int tile in p.tiles)
-            {
-                neighbors.Clear();
-                Find.WorldGrid.GetTileNeighbors(tile, neighbors);
-                foreach (var n in neighbors)
-                {
-                    int neighborId = n.tileId;
-                    int neighborProvinceId = GetProvinceId(neighborId);
-                    if (neighborProvinceId != -1 && neighborProvinceId != p.id)
-                    {
-                        bool crossesRiver = Find.WorldGrid.GetRiverDef(tile, neighborId) != null || Find.WorldGrid.GetRiverDef(neighborId, tile) != null;
-                        bool crossesMountain = Find.WorldGrid[tile].hilliness == Hilliness.Mountainous || Find.WorldGrid[neighborId].hilliness == Hilliness.Mountainous;
-                        if (crossesRiver || crossesMountain)
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-            return false;
-        }
-
-        private List<List<int>> GetNaturalBasins()
-        {
-            int totalTiles = Find.WorldGrid.TilesCount;
-            bool[] visited = new bool[totalTiles];
-            List<List<int>> basins = new List<List<int>>();
-
-            List<RimWorld.Planet.PlanetTile> neighbors = new List<RimWorld.Planet.PlanetTile>();
-
-            for (int t = 0; t < totalTiles; t++)
-            {
-                Tile tileData = Find.WorldGrid[t];
-                if (tileData.WaterCovered || tileData.hilliness == Hilliness.Impassable || (tileData.PrimaryBiome != null && tileData.PrimaryBiome.impassable))
-                {
-                    continue;
-                }
-
-                if (visited[t]) continue;
-
-                List<int> basin = new List<int>();
-                Queue<int> queue = new Queue<int>();
-                queue.Enqueue(t);
-                visited[t] = true;
-
-                while (queue.Count > 0)
-                {
-                    int current = queue.Dequeue();
-                    basin.Add(current);
-
-                    neighbors.Clear();
-                    Find.WorldGrid.GetTileNeighbors(current, neighbors);
-
-                    foreach (var n in neighbors)
-                    {
-                        int neighborId = n.tileId;
-                        if (visited[neighborId]) continue;
-
-                        Tile neighborData = Find.WorldGrid[neighborId];
-
-                        if (neighborData.WaterCovered || neighborData.hilliness == Hilliness.Impassable || (neighborData.PrimaryBiome != null && neighborData.PrimaryBiome.impassable))
-                        {
-                            continue;
-                        }
-
-                        // Do not cross river or mountain barriers during the initial basin flood fill
-                        if (IsBoundary(current, neighborId))
-                        {
-                            continue;
-                        }
-
-                        visited[neighborId] = true;
-                        queue.Enqueue(neighborId);
-                    }
-                }
-
-                if (basin.Count > 0)
-                {
-                    basins.Add(basin);
-                }
-            }
-
-            return basins;
-        }
-
-        private bool IsBoundary(int tileA, int tileB)
-        {
-            if (Find.WorldGrid == null) return false;
-
-            // River check: Rivers act as primary boundaries
-            if (Find.WorldGrid.GetRiverDef(tileA, tileB) != null || Find.WorldGrid.GetRiverDef(tileB, tileA) != null)
-            {
-                return true;
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// Split a land pocket into size-bounded regions whose boundaries follow terrain (#3). Each
-        /// region grows from a seed via a cost-priority frontier — cheap across open land, expensive
-        /// across mountains and rivers — so it fills the open basin first and crosses rough terrain
-        /// last. Boundaries therefore fall along mountain ranges, and a narrow pass (expensive to
-        /// cross) becomes the divide between two regions. Growth stops at <paramref name="maxSize"/>,
-        /// so regions are inherently bounded and no post-hoc carve is required. Deterministic (seeds
-        /// from sorted tile ids) so a world regenerates identically.
-        /// </summary>
-        private List<List<int>> GrowTerrainBoundedRegions(List<int> chunk, float pointCap)
-        {
-            var remaining = new HashSet<int>(chunk);
-            var order = new List<int>(chunk);
-            // Seed richest-first: a resource-rich tile anchors a region that grows out into the
-            // cheaper surrounding land (including desert), so valuable pockets become region CORES
-            // instead of stranded enclaves. Ties by id for deterministic regeneration (#3/#49).
-            order.Sort((x, y) =>
-            {
-                int c = TilePoints(y).CompareTo(TilePoints(x));
-                return c != 0 ? c : x.CompareTo(y);
-            });
-            var result = new List<List<int>>();
-            var neighbors = new List<RimWorld.Planet.PlanetTile>();
-
-            foreach (int start in order)
-            {
-                if (!remaining.Contains(start)) continue;
-
-                var region = new List<int>();
-                var regionSet = new HashSet<int>();
-                float regionPoints = 0f;
-                var costs = new Dictionary<int, float>();
-                var claimedNbr = new Dictionary<int, int>();
-                costs[start] = 0f;
-                var pq = new SimplePriorityQueue<int>();
-                pq.Enqueue(start, 0f);
-
-                // Two-phase growth (#3). The VALUE budget still sets the rich-compact / barren-sprawl
-                // character, but it is no longer a hard fill target:
-                //   * Below minPoints (must-fill): annex the cheapest reachable tile no matter what —
-                //     a value-starved core is allowed to reach across a river or ridge to become viable.
-                //   * At/above minPoints (border-seeking): refuse to cross a natural feature. The region
-                //     keeps flowing through connected open terrain until mountains, rivers and water
-                //     enclose it, so the border snaps ONTO those features and crosses open gaps only at
-                //     their narrowest (the pass). When nothing is left to annex without crossing a
-                //     feature, the region ends EARLY — even below the cap — and the featureless interior
-                //     beyond the enclosure is left unclaimed (no-man's-land) rather than split by an
-                //     arbitrary bisector.
-                float minPoints = pointCap * MinFillFraction;
-                while (pq.Count > 0 && regionPoints < pointCap)
-                {
-                    int cur = pq.Dequeue();
-                    if (!remaining.Contains(cur)) continue;   // claimed already (stale queue entry)
-
-                    if (regionPoints >= minPoints)
-                    {
-                        // Border-seeking with a compactness gate (#3). Count the region's own tiles
-                        // adjacent to this one through OPEN terrain (a feature edge does not count —
-                        // that is the far side of a natural boundary and must stay the border). Annex
-                        // only when at least CompactLinkMin such links exist: a single-link tile is a
-                        // finger / tumour tip, and refusing it holds growth to broad advancing fronts,
-                        // so regions stay compact (low perimeter) instead of snaking or sprouting lobes
-                        // while still hugging features. Below minPoints this gate is off, so a starved
-                        // core may still reach out to become viable.
-                        int openLinks = 0;
-                        neighbors.Clear();
-                        Find.WorldGrid.GetTileNeighbors(cur, neighbors);
-                        foreach (var n in neighbors)
-                        {
-                            if (regionSet.Contains(n.tileId) && TerrainStepCost(cur, n.tileId) < BarrierStepCost)
-                            {
-                                openLinks++;
-                                if (openLinks >= CompactLinkMin) break;
-                            }
-                        }
-                        if (openLinks < CompactLinkMin) continue;
-                    }
-
-                    remaining.Remove(cur);
-                    region.Add(cur);
-                    regionSet.Add(cur);
-                    regionPoints += TilePoints(cur);
-
-                    neighbors.Clear();
-                    Find.WorldGrid.GetTileNeighbors(cur, neighbors);
-                    foreach (var n in neighbors)
-                    {
-                        int nid = n.tileId;
-                        if (!remaining.Contains(nid)) continue;
-
-                        // cur just joined the region, so nid gained one more claimed neighbour.
-                        int cn;
-                        claimedNbr.TryGetValue(nid, out cn);
-                        cn++;
-                        claimedNbr[nid] = cn;
-
-                        float terrain = costs[cur] + TerrainStepCost(cur, nid);
-                        float existing;
-                        if (!costs.TryGetValue(nid, out existing) || terrain < existing)
-                            costs[nid] = terrain;
-
-                        // Priority = distance from the seed plus a compactness penalty for every
-                        // still-unclaimed neighbour: a tile boxed in by the region (few unclaimed
-                        // neighbours) is annexed before a tile that would poke out a finger. Re-enqueued
-                        // each time a neighbour is claimed so the penalty falls as the notch fills;
-                        // stale duplicates are skipped by the remaining-set check at dequeue. Barrier
-                        // avoidance is the gate above, not here, so this only reshapes the open frontier.
-                        float priority = costs[nid] + CompactWeight * (6 - cn);
-                        pq.Enqueue(nid, priority);
-                    }
-                }
-                result.Add(region);
-            }
-            return result;
-        }
-
-        /// <summary>
-        /// A tile's contribution to a region's size budget, in value points. Fertile and mineral-rich
-        /// land is worth more, so a region fills its budget in fewer tiles (compact); barren waste is
-        /// worth little, so regions there sprawl; water is near-free so it is absorbed without
-        /// spending the budget. The small floor keeps growth terminating even over zero-value water,
-        /// and makes region size a function of value rather than area (#49).
-        /// </summary>
-        private static float TilePoints(int tile)
-        {
-            Tile t = Find.WorldGrid[tile];
-            if (t.WaterCovered) return 0.05f;   // near-free: a coastal region absorbs its water for almost nothing
-            float value = 0f;
+            WorldGrid grid = Find.WorldGrid;
+            if (grid == null || tile < 0 || tile >= grid.TilesCount) return true;
+            Tile t = grid[tile];
+            if (t == null || t.WaterCovered) return true;
+            if (t.hilliness == Hilliness.Impassable) return true;
             BiomeDef b = t.PrimaryBiome;
-            if (b != null) value += b.plantDensity + b.forageability;   // fertility / food
-            switch (t.hilliness)                                        // mineral potential
-            {
-                case Hilliness.SmallHills:  value += 0.25f; break;
-                case Hilliness.LargeHills:  value += 0.45f; break;
-                case Hilliness.Mountainous: value += 0.65f; break;
-                default:                    value += 0.10f; break;
-            }
-            return Mathf.Max(value, 0.05f);
+            return b != null && (b.impassable || b.defName == "SeaIce");
         }
 
-        /// <summary>Cheap over open land, expensive across mountains and rivers, so a growing region
-        /// fills its basin before spilling over rough terrain — the mechanism that puts region
-        /// boundaries on natural barriers (#3).</summary>
-        private static float TerrainStepCost(int a, int b)
+        /// <summary>The biome of a tile, or null. Used to keep merges and smoothing within one biome.</summary>
+        private static BiomeDef BiomeOfTile(int tile)
         {
-            float cost = 1f;
-            Tile ta = Find.WorldGrid[a];
-            Tile tb = Find.WorldGrid[b];
-            bool rough = ta.hilliness == Hilliness.LargeHills || ta.hilliness == Hilliness.Mountainous
-                      || tb.hilliness == Hilliness.LargeHills || tb.hilliness == Hilliness.Mountainous;
-            if (rough) cost += 12f;
-            if (ta.WaterCovered || tb.WaterCovered) cost += 12f;   // water is a barrier too — regions don't spread across it
-            if (Find.WorldGrid.GetRiverDef(a, b) != null || Find.WorldGrid.GetRiverDef(b, a) != null) cost += 12f;
-            return cost;
-        }
-
-        private List<List<int>> SplitChunkByVoronoi(List<int> chunk)
-        {
-            HashSet<int> chunkSet = new HashSet<int>(chunk);
-            int size = chunk.Count(t => IsTileUsable(t));
-
-            float targetSize = (FactionPlacementSettings.minRegionSize + FactionPlacementSettings.maxRegionSize) / 2f;
-            int k = Mathf.CeilToInt((float)size / targetSize);
-            if (k < 2) k = 2;
-
-            List<int> seeds = new List<int>();
-            if (k > 0 && chunk.Count > 0)
-            {
-                seeds.Add(chunk[0]);
-
-                while (seeds.Count < k)
-                {
-                    int bestTile = -1;
-                    float maxMinDist = -1f;
-
-                    int sampleStep = Mathf.Max(1, chunk.Count / 300);
-                    for (int i = 0; i < chunk.Count; i += sampleStep)
-                    {
-                        int tile = chunk[i];
-                        if (seeds.Contains(tile)) continue;
-
-                        float minDist = float.MaxValue;
-                        foreach (int seed in seeds)
-                        {
-                            float dist = Find.WorldGrid.ApproxDistanceInTiles(tile, seed);
-                            if (dist < minDist)
-                            {
-                                minDist = dist;
-                            }
-                        }
-
-                        if (minDist > maxMinDist)
-                        {
-                            maxMinDist = minDist;
-                            bestTile = tile;
-                        }
-                    }
-
-                    if (bestTile != -1)
-                    {
-                        seeds.Add(bestTile);
-                    }
-                    else
-                    {
-                        break;
-                    }
-                }
-            }
-
-            var tileToSeed = new Dictionary<int, int>();
-            var minCosts = new Dictionary<int, float>();
-            var pq = new SimplePriorityQueue<int>();
-
-            foreach (int seed in seeds)
-            {
-                minCosts[seed] = 0f;
-                tileToSeed[seed] = seed;
-                pq.Enqueue(seed, 0f);
-            }
-
-            List<RimWorld.Planet.PlanetTile> neighbors = new List<RimWorld.Planet.PlanetTile>();
-
-            while (pq.Count > 0)
-            {
-                int current = pq.Dequeue();
-                float currentCost = minCosts[current];
-                int seed = tileToSeed[current];
-
-                neighbors.Clear();
-                Find.WorldGrid.GetTileNeighbors(current, neighbors);
-
-                foreach (var n in neighbors)
-                {
-                    int neighborId = n.tileId;
-                    if (!chunkSet.Contains(neighborId)) continue;
-
-                    Tile currentData = Find.WorldGrid[current];
-                    Tile neighborData = Find.WorldGrid[neighborId];
-
-                    float stepCost = 1.0f;
-
-                    if (currentData.hilliness == Hilliness.Mountainous || currentData.hilliness == Hilliness.LargeHills ||
-                        neighborData.hilliness == Hilliness.Mountainous || neighborData.hilliness == Hilliness.LargeHills)
-                    {
-                        stepCost += 100f;
-                    }
-
-                    if (Find.WorldGrid.GetRiverDef(current, neighborId) != null || Find.WorldGrid.GetRiverDef(neighborId, current) != null)
-                    {
-                        stepCost += 100f;
-                    }
-
-                    float newCost = currentCost + stepCost;
-
-                    if (!minCosts.TryGetValue(neighborId, out float existingCost) || newCost < existingCost)
-                    {
-                        minCosts[neighborId] = newCost;
-                        tileToSeed[neighborId] = seed;
-                        pq.Enqueue(neighborId, newCost);
-                    }
-                }
-            }
-
-            var groups = new Dictionary<int, List<int>>();
-            foreach (int seed in seeds)
-            {
-                groups[seed] = new List<int>();
-            }
-
-            foreach (int tile in chunk)
-            {
-                if (tileToSeed.TryGetValue(tile, out int seed))
-                {
-                    groups[seed].Add(tile);
-                }
-                else
-                {
-                    groups[seeds[0]].Add(tile);
-                }
-            }
-
-            return groups.Values.ToList();
-        }
-
-        /// <summary>
-        /// Guarantees no land region exceeds the configured size (#49). Any region whose total tile
-        /// count is over the cap (plus the same slack the feature-rich split path allows) is re-carved
-        /// into connected, size-bounded pockets; the first stays as the region, the rest become new
-        /// ones. Only oversized regions are touched, so well-split regions keep their natural borders.
-        /// </summary>
-        private void EnforceMaxRegionSize(int baseMax)
-        {
-            int hardCap = baseMax + 30;
-            var oversized = provinces
-                .Where(p => p.provinceType == ProvinceType.Land && !p.IsBarren && p.tiles != null && p.tiles.Count > hardCap)
-                .ToList();
-            if (oversized.Count == 0) return;
-
-            int nextId = provinces.Count > 0 ? provinces.Max(p => p.id) + 1 : 0;
-            int added = 0;
-
-            foreach (var big in oversized)
-            {
-                var pockets = CarveIntoSizedPockets(big.tiles, hardCap);
-                if (pockets.Count <= 1) continue;
-
-                big.tiles = pockets[0];
-                foreach (int t in big.tiles) tileToProvinceId[t] = big.id;
-
-                for (int i = 1; i < pockets.Count; i++)
-                {
-                    var np = new GeographicProvince(nextId++);
-                    np.tiles = pockets[i];
-                    np.provinceType = ProvinceType.Land;
-                    np.primaryBiome = GetPrimaryBiome(pockets[i]);
-                    np.name = GenerateProvinceName(np.id, np.primaryBiome, np.provinceType);
-                    foreach (int t in pockets[i]) tileToProvinceId[t] = np.id;
-                    provinces.Add(np);
-                    added++;
-                }
-            }
-
-            Log.Message($"[RegionsAndSocieties] EnforceMaxRegionSize: re-carved {oversized.Count} oversized region(s) into {added} additional region(s) (cap {hardCap}).");
-        }
-
-        /// <summary>
-        /// Carve a tile set into connected pockets, each at most <paramref name="capTotal"/> tiles, by
-        /// repeated bounded breadth-first growth. Deterministic (starts from sorted tile ids) so a
-        /// world regenerates identically.
-        /// </summary>
-        private List<List<int>> CarveIntoSizedPockets(List<int> tiles, int capTotal)
-        {
-            var remaining = new HashSet<int>(tiles);
-            var order = new List<int>(tiles);
-            order.Sort();
-            var result = new List<List<int>>();
-            var neighbors = new List<RimWorld.Planet.PlanetTile>();
-
-            foreach (int startCandidate in order)
-            {
-                if (!remaining.Contains(startCandidate)) continue;
-
-                var pocket = new List<int>();
-                var queue = new Queue<int>();
-                queue.Enqueue(startCandidate);
-                remaining.Remove(startCandidate);
-
-                while (queue.Count > 0)
-                {
-                    int cur = queue.Dequeue();
-                    pocket.Add(cur);
-                    if (pocket.Count >= capTotal)
-                    {
-                        while (queue.Count > 0) remaining.Add(queue.Dequeue());   // return the frontier to the pool
-                        break;
-                    }
-                    neighbors.Clear();
-                    Find.WorldGrid.GetTileNeighbors(cur, neighbors);
-                    foreach (var n in neighbors)
-                    {
-                        if (remaining.Remove(n.tileId)) queue.Enqueue(n.tileId);
-                    }
-                }
-                result.Add(pocket);
-            }
-            return result;
+            WorldGrid grid = Find.WorldGrid;
+            if (grid == null || tile < 0 || tile >= grid.TilesCount) return null;
+            Tile t = grid[tile];
+            return t?.PrimaryBiome;
         }
 
         /// <summary>Usable-tile count for a province, as an allocation-free loop (no LINQ closure).
@@ -1610,7 +1573,7 @@ namespace RegionsAndSocieties
 
                 foreach (var p in provinces)
                 {
-                    if (p.provinceType == ProvinceType.Ocean) continue;
+                    if (p.provinceType == ProvinceType.Ocean || p.provinceType == ProvinceType.MountainRange) continue;
                     if (toRemove.Contains(p)) continue;
 
                     int pSize = p.tiles.Count;
@@ -1624,16 +1587,26 @@ namespace RegionsAndSocieties
 
                     if (pSize >= threshold) continue;
 
-                    // Find adjacent neighbors
+                    // Find adjacent neighbors — but only across a shared edge that is genuinely mergeable:
+                    // both tiles passable (not a range/coast/impassable) AND the same biome as this region.
+                    // This is what stops the recombine from folding a shard across a barrier or into a
+                    // different biome — the two things the grid partition was careful to separate. A shard
+                    // with no same-biome passable neighbour simply survives (a small correct region beats a
+                    // barrier-crossing merge).
+                    BiomeDef pBiome = p.primaryBiome;
                     Dictionary<int, int> neighborWeights = new Dictionary<int, int>();
 
                     foreach (int tile in p.tiles)
                     {
+                        if (IsBarrierTile(tile)) continue;                      // draped crest/coast tiles don't seek merges
+                        if (BiomeOfTile(tile) != pBiome) continue;             // only merge from the region's own-biome body
                         neighbors.Clear();
                         Find.WorldGrid.GetTileNeighbors(tile, neighbors);
                         foreach (var n in neighbors)
                         {
                             int neighborId = n.tileId;
+                            if (IsBarrierTile(neighborId)) continue;           // a wall between us = not a merge seam
+                            if (BiomeOfTile(neighborId) != pBiome) continue;   // biome edge = seam, never merge across
                             int neighborProvinceId = GetProvinceId(neighborId);
                             if (neighborProvinceId != -1 && neighborProvinceId != p.id)
                             {
@@ -1642,17 +1615,11 @@ namespace RegionsAndSocieties
                                 {
                                     if (neighborProv.provinceType == ProvinceType.Ocean || toRemove.Contains(neighborProv)) continue;
 
-                                    int weight = 1;
-                                    if (neighborProv.provinceType == ProvinceType.Land)
-                                    {
-                                        weight = 100;
-                                    }
-
                                     if (!neighborWeights.ContainsKey(neighborProvinceId))
                                     {
                                         neighborWeights[neighborProvinceId] = 0;
                                     }
-                                    neighborWeights[neighborProvinceId] += weight;
+                                    neighborWeights[neighborProvinceId] += 1;
                                 }
                             }
                         }
@@ -1673,6 +1640,10 @@ namespace RegionsAndSocieties
                         {
                             if (provinceMap.TryGetValue(kvp.Key, out var neighborProv))
                             {
+                                // Never adopt a target in a different biome — even the orphan rescue below
+                                // stays in-biome, because its candidates come only from this same list.
+                                if (neighborProv.primaryBiome != pBiome) continue;
+
                                 // Remember the highest-weight (most shared edges) land neighbour as a
                                 // rescue target, regardless of the size cap.
                                 if (dominantLand == null && neighborProv.provinceType == ProvinceType.Land)
@@ -1686,15 +1657,14 @@ namespace RegionsAndSocieties
                             }
                         }
 
-                        // Orphan rescue (#3): a small pocket whose neighbours are all already at or past
-                        // the size cap — the common case next to a low-value tundra/desert region that
-                        // sprawled to ~200 tiles under the value budget — would otherwise survive as an
-                        // arbitrary leftover island (no natural border, sometimes the same faction as the
-                        // neighbour). Fold it into its dominant land neighbour anyway; a slightly
-                        // oversized low-value region reads far better than a stranded gap. Bounded to
-                        // genuinely small pockets so this never chains medium regions into a monster.
+                        // Orphan rescue (#3, widened #20): a small province whose only neighbours are
+                        // already at or past the size cap would otherwise survive as a stranded sliver
+                        // next to a big region. Fold it into its dominant land neighbour anyway — an
+                        // oversized region reads far better than a too-small one, and large sparse
+                        // regions are natural here. Bounded to genuinely small provinces (< the target
+                        // minimum) so a medium region is never chained into a runaway monster.
                         if (bestNeighbor == null && dominantLand != null &&
-                            p.tiles.Count <= FactionPlacementSettings.minRegionSize / 2)
+                            p.tiles.Count < FactionPlacementSettings.minRegionSize)
                         {
                             bestNeighbor = dominantLand;
                         }
@@ -1712,6 +1682,36 @@ namespace RegionsAndSocieties
                             totalMerged++;
                         }
                     }
+
+                    // Cross-biome fallback for a genuinely tiny sliver that found no same-biome, barrier-
+                    // free neighbour (a pass fragment or a tiny inclusion touching several regions): fold it
+                    // into its largest passable land neighbour of ANY biome. A few mixed tiles at the margin
+                    // read far better than a 1-3 tile region of its own; bounded to very small p so normal
+                    // regions stay biome-pure.
+                    if (!toRemove.Contains(p) && p.tiles.Count < FactionPlacementSettings.minRegionSize / 3)
+                    {
+                        GeographicProvince bestAny = null; int bestAnySize = -1;
+                        var seenN = new HashSet<int>();
+                        foreach (int tile in p.tiles)
+                        {
+                            if (IsBarrierTile(tile)) continue;
+                            neighbors.Clear(); Find.WorldGrid.GetTileNeighbors(tile, neighbors);
+                            foreach (var n in neighbors)
+                            {
+                                if (IsBarrierTile(n.tileId)) continue;
+                                int npid = GetProvinceId(n.tileId);
+                                if (npid == -1 || npid == p.id || !seenN.Add(npid)) continue;
+                                if (!provinceMap.TryGetValue(npid, out var nprov)) continue;
+                                if (nprov.provinceType != ProvinceType.Land || toRemove.Contains(nprov)) continue;
+                                if (nprov.tiles.Count > bestAnySize) { bestAnySize = nprov.tiles.Count; bestAny = nprov; }
+                            }
+                        }
+                        if (bestAny != null)
+                        {
+                            foreach (int tileId in p.tiles) { bestAny.tiles.Add(tileId); tileToProvinceId[tileId] = bestAny.id; }
+                            toRemove.Add(p); mergedAnyInThisPass = true; totalMerged++;
+                        }
+                    }
                 }
 
                 if (!mergedAnyInThisPass)
@@ -1727,6 +1727,59 @@ namespace RegionsAndSocieties
             }
 
             Log.Message($"[RegionsAndSocieties] MergeTinyDomains finished. Merged {totalMerged} regions in {pass} passes. Final region count: {provinces.Count}");
+        }
+
+        /// <summary>
+        /// Fold every land region ENTIRELY enclosed by a single other land region into that region. A
+        /// region's enclosure is judged over its LAND-region neighbours only — water, impassable-mountain
+        /// (MountainRange) and off-map borders don't count against it — so a coastal or range-flanked
+        /// sliver whose every land neighbour is one province q is an enclave of q and merges into it,
+        /// regardless of biome. Iterated, because absorbing one enclave can enclose the next. Bounded to
+        /// regions below the max size so a genuine large region is never swallowed.
+        /// </summary>
+        private void AbsorbEnclosedRegions()
+        {
+            if (provinces == null || tileToProvinceId == null || Find.WorldGrid == null) return;
+            var neighbors = new List<RimWorld.Planet.PlanetTile>();
+            int guard = 0, absorbed = 0;
+            bool changed = true;
+            while (changed && guard++ < 12)
+            {
+                changed = false;
+                var byId = provinces.ToDictionary(p => p.id, p => p);
+                var toRemove = new HashSet<GeographicProvince>();
+                foreach (var p in provinces)
+                {
+                    if (p.provinceType != ProvinceType.Land || toRemove.Contains(p)) continue;
+                    if (p.tiles == null || p.tiles.Count == 0) continue;
+                    if (p.tiles.Count >= FactionPlacementSettings.maxRegionSize) continue;   // never swallow a big region
+
+                    int encloser = -2;   // -2 = none seen yet; -1 = more than one distinct land neighbour
+                    foreach (int tile in p.tiles)
+                    {
+                        neighbors.Clear();
+                        Find.WorldGrid.GetTileNeighbors(tile, neighbors);
+                        foreach (var n in neighbors)
+                        {
+                            int npid = GetProvinceId(n.tileId);
+                            if (npid == -1 || npid == p.id) continue;
+                            if (!byId.TryGetValue(npid, out var nprov) || nprov.provinceType != ProvinceType.Land) continue;  // water / mountain don't break enclosure
+                            if (toRemove.Contains(nprov)) continue;
+                            if (encloser == -2) encloser = npid;
+                            else if (encloser != npid) { encloser = -1; break; }
+                        }
+                        if (encloser == -1) break;
+                    }
+
+                    if (encloser >= 0 && byId.TryGetValue(encloser, out var q) && !toRemove.Contains(q))
+                    {
+                        foreach (int tileId in p.tiles) { q.tiles.Add(tileId); tileToProvinceId[tileId] = q.id; }
+                        toRemove.Add(p); changed = true; absorbed++;
+                    }
+                }
+                if (toRemove.Count > 0) provinces.RemoveAll(p => toRemove.Contains(p));
+            }
+            Log.Message($"[RegionsAndSocieties] AbsorbEnclosedRegions: folded {absorbed} enclave region(s).");
         }
 
         private float GetResourceWeight(GeographicProvince p)
@@ -1984,6 +2037,11 @@ namespace RegionsAndSocieties
                 if (pid < 0) continue;
                 GeographicProvince prov;
                 if (!byId.TryGetValue(pid, out prov)) continue;
+                // Water provinces are never owned or contested, so they need no perimeter/border-share
+                // topology. Skipping them also stops the (huge, claimed) ocean from accumulating a
+                // border-share to every coastal land province — the source of the "coastal faction
+                // holds the sea" ownership bleed once the ocean became a real province (#20).
+                if (prov.provinceType == ProvinceType.Ocean || prov.provinceType == ProvinceType.MountainRange) continue;
 
                 neighbors.Clear();
                 Find.WorldGrid.GetTileNeighbors(t, neighbors);
@@ -2090,6 +2148,11 @@ namespace RegionsAndSocieties
             var ownerByProvince = new Dictionary<int, Faction>(provinces.Count);
             foreach (var province in provinces)
             {
+                // Open water is never owned — skip it so a coastal faction is not written in as
+                // "holding" the sea (which would leak supply anchors and foothold adjacency along the
+                // whole coastline now that the ocean is a real province, #20).
+                if (province.provinceType == ProvinceType.Ocean || province.provinceType == ProvinceType.MountainRange) { province.owningFactionIds.Clear(); continue; }
+
                 List<RimWorld.Planet.WorldObject> regionObjects;
                 if (!objectsByProvince.TryGetValue(province.id, out regionObjects)) regionObjects = EmptyWorldObjects;
                 province.ownershipData = RegionalOwnershipUtility.CalculateOwnershipBase(province, regionObjects);
@@ -2102,6 +2165,7 @@ namespace RegionsAndSocieties
             // where "region 487 changed owner -> recompute 326's borders" stays cheap (#44).
             foreach (var province in provinces)
             {
+                if (province.provinceType == ProvinceType.Ocean || province.provinceType == ProvinceType.MountainRange) continue;
                 RegionalOwnershipUtility.ApplyBordersAndNormalize(province.ownershipData, province, ownerByProvince);
 
                 province.owningFactionIds.Clear();

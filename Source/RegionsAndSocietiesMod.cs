@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Linq;
 using HarmonyLib;
@@ -27,6 +28,28 @@ namespace RegionsAndSocieties
             l.Label($"Territory compactness (squaring): {Mathf.RoundToInt(FactionPlacementSettings.territoryCompactness * 100f)}%",
                 tooltip: "How strongly territories prefer squaring off over spidering (#19). Growth favors provinces already embedded in the domain — filling pockets before extending tendrils. 0% is the old purely-greedy behavior; 100% means a poorly-connected province is chosen only when its land is dramatically better. Applies to newly generated worlds and to expansion mods that read the compactness endpoint.");
             FactionPlacementSettings.territoryCompactness = l.Slider(FactionPlacementSettings.territoryCompactness, 0f, 1f);
+
+            // World partition algorithm (pluggable — mods can add their own via IRegionPartitioner).
+            var currentPartitioner = Partition.RegionPartitionerRegistry.Get(FactionPlacementSettings.partitionAlgorithmId)
+                ?? Partition.RegionPartitionerRegistry.Default;
+            l.Label("World partition algorithm:",
+                tooltip: "How the globe is cut into regions. Applies to NEWLY generated worlds only — an existing save keeps the algorithm it was generated with, so switching never re-cuts a live map. Expansion mods can register their own algorithms here.");
+            if (l.ButtonText(currentPartitioner != null ? currentPartitioner.Label : FactionPlacementSettings.partitionAlgorithmId))
+            {
+                var options = new List<FloatMenuOption>();
+                foreach (var p in Partition.RegionPartitionerRegistry.All)
+                {
+                    var picked = p;   // capture per-iteration
+                    options.Add(new FloatMenuOption(picked.Label, () => FactionPlacementSettings.partitionAlgorithmId = picked.AlgorithmId));
+                }
+                if (options.Count > 0) Find.WindowStack.Add(new FloatMenu(options));
+            }
+            if (currentPartitioner != null && !string.IsNullOrEmpty(currentPartitioner.Description))
+            {
+                GUI.color = new Color(0.7f, 0.7f, 0.7f);
+                l.Label(currentPartitioner.Description);
+                GUI.color = Color.white;
+            }
             l.GapLine();
 
             l.CheckboxLabeled("Show ownership calculation breakdown in the region panel",
@@ -65,8 +88,16 @@ namespace RegionsAndSocieties
                 float mult = Integration.WorldObjectIntegrationSettings.populationCapMultiplier;
                 mult = Mathf.RoundToInt(l.SliderLabeled(
                     $"   Population cap multiplier: {mult:0}  (metropolis ≈ {15 * mult:0} pawns, village ≈ {mult:0})",
-                    mult, 1f, 30f));
+                    mult, 5f, 60f));
                 Integration.WorldObjectIntegrationSettings.populationCapMultiplier = mult;
+
+                float growth = Integration.WorldObjectIntegrationSettings.growthRateMultiplier;
+                growth = l.SliderLabeled(
+                    $"   Population growth rate: {growth:0.0}× real  (a healthy town grows ~{1.5f * growth:0}%/yr)",
+                    growth,
+                    Integration.WorldObjectIntegrationSettings.GrowthRateMultiplierMin,
+                    Integration.WorldObjectIntegrationSettings.GrowthRateMultiplierMax);
+                Integration.WorldObjectIntegrationSettings.growthRateMultiplier = (float)System.Math.Round(growth, 1);
             }
 
             l.CheckboxLabeled("Demographic pressure tuning", ref demographicTuningExpanded, "Show the reach/falloff sliders that shape how far a settlement's make-up carries and how contested its borders are.");
@@ -129,6 +160,11 @@ namespace RegionsAndSocieties
             // 0.8: the write-side counterpart — creators that build holdings (VOE outposts) for the
             // outpost-seeding pass. Registered here so the seeding postfix can stay mod-agnostic.
             Integration.HoldingCreatorRegistry.Initialize();
+
+            // 0.3.0: the pluggable world-partition algorithms. Core registers its two built-ins; expansion
+            // mods add their own IRegionPartitioner from their Mod constructor and it appears in the
+            // world-partition dropdown in settings.
+            Partition.RegionPartitionerRegistry.Initialize();
 
             RegisterProvidersWithCore();
 

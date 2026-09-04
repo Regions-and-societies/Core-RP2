@@ -17,8 +17,13 @@ namespace RegionsAndSocieties.Sizing
     /// </summary>
     public static class PopulationCapRules
     {
-        /// <summary>Default cap multiplier: territories-for-tier × this. Player-tunable via a mod-menu slider.</summary>
-        public const float DefaultMultiplier = 10f;
+        /// <summary>
+        /// Default cap multiplier: territories-for-tier × this. Player-tunable via a mod-menu slider.
+        /// 30 (0.3.0; was 10): at industrial tech a village caps at 30, a town 90, a city 180, a major
+        /// city 300 and a metropolis 450, so a settled region reads in the hundreds rather than tens
+        /// and the density heatmap actually reaches its upper bands.
+        /// </summary>
+        public const float DefaultMultiplier = 30f;
 
         /// <summary>The desired size is this fraction of the cap; the population drifts toward it.</summary>
         public const float TargetFraction = 2f / 3f;

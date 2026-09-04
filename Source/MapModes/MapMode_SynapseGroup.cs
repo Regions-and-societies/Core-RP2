@@ -35,6 +35,14 @@ namespace RegionsAndSocieties
                 options.Add(new FloatMenuOption(popMode.def.LabelCap, () => MapModeComponent.Instance.RequestMapModeSwitch(popMode)));
             }
 
+            // Residences: population resolved into homes by urbanization (0.3.0). Population is people;
+            // residences are where they live — rural extended-family homesteads to dense urban households.
+            var residenceMode = MapModeComponent.Instance.mapModes.FirstOrDefault(m => m.def.defName == "SynapseResidence");
+            if (residenceMode != null)
+            {
+                options.Add(new FloatMenuOption(residenceMode.def.LabelCap, () => MapModeComponent.Instance.RequestMapModeSwitch(residenceMode)));
+            }
+
             // Age structure: regions shaded by median age (#10). Sits alongside dwellings as another
             // read of the same deterministic demographic model.
             var ageMode = MapModeComponent.Instance.mapModes.FirstOrDefault(m => m.def.defName == "SynapseAgeStructure");
@@ -50,9 +58,11 @@ namespace RegionsAndSocieties
                 options.Add(new FloatMenuOption(sexMode.def.LabelCap, () => MapModeComponent.Instance.RequestMapModeSwitch(sexMode)));
             }
 
-            // Xenotypes: regions tinted by dominant caste (#12). Only meaningful with Biotech.
+            // Xenotypes: regions tinted by dominant caste (#12). Offered only with Biotech — without the
+            // DLC every pawn is Baseliner, so the overlay would be a flat, meaningless wash. The def stays
+            // loaded (so a save that had it selected still resolves); it is simply not listed here.
             var xenoMode = MapModeComponent.Instance.mapModes.FirstOrDefault(m => m.def.defName == "SynapseXenotype");
-            if (xenoMode != null)
+            if (xenoMode != null && ModsConfig.BiotechActive)
             {
                 options.Add(new FloatMenuOption(xenoMode.def.LabelCap, () => MapModeComponent.Instance.RequestMapModeSwitch(xenoMode)));
             }
@@ -71,9 +81,11 @@ namespace RegionsAndSocieties
                 options.Add(new FloatMenuOption(wealthMode.def.LabelCap, () => MapModeComponent.Instance.RequestMapModeSwitch(wealthMode)));
             }
 
-            // Ideology: regions tinted by dominant ideo (#13). Only meaningful with the Ideology DLC.
+            // Ideology: regions tinted by dominant ideo (#13). Offered only with the Ideology DLC — without
+            // it every region is secular, so the overlay is a flat wash. The def stays loaded (save-safe);
+            // it is simply not listed here.
             var ideoMode = MapModeComponent.Instance.mapModes.FirstOrDefault(m => m.def.defName == "SynapseIdeology");
-            if (ideoMode != null)
+            if (ideoMode != null && ModsConfig.IdeologyActive)
             {
                 options.Add(new FloatMenuOption(ideoMode.def.LabelCap, () => MapModeComponent.Instance.RequestMapModeSwitch(ideoMode)));
             }
@@ -83,6 +95,13 @@ namespace RegionsAndSocieties
             if (employMode != null)
             {
                 options.Add(new FloatMenuOption(employMode.def.LabelCap, () => MapModeComponent.Instance.RequestMapModeSwitch(employMode)));
+            }
+
+            // Biomes & walls: the terrain/partition debug overlay (#20).
+            var barriersMode = MapModeComponent.Instance.mapModes.FirstOrDefault(m => m.def.defName == "SynapseNaturalBarriers");
+            if (barriersMode != null)
+            {
+                options.Add(new FloatMenuOption(barriersMode.def.LabelCap, () => MapModeComponent.Instance.RequestMapModeSwitch(barriersMode)));
             }
 
             if (options.Any())

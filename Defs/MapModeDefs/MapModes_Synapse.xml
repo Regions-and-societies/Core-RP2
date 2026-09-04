@@ -2,9 +2,20 @@
 <Defs>
   <MapModeFramework.MapModeDef MayRequireAnyOf="NozoMe.MapModeFramework,koth.RealisticPlanets2">
     <defName>SynapsePopulationDensity</defName>
-    <label>dwellings</label>
-    <description>Visualizes the density of pawn dwellings across the planet.</description>
+    <label>population</label>
+    <description>Shades each tile by how many people live there — a heatmap that fades outward from the busiest settlements.</description>
     <mapModeClass>RegionsAndSocieties.MapMode_PopulationDensity</mapModeClass>
+    <worldLayerClass>MapModeFramework.WorldLayer_MapMode_Terrain</worldLayerClass>
+    <iconPath>UI/MapModes/Default</iconPath>
+    <canCache>true</canCache>
+    <includeWater>false</includeWater>
+  </MapModeFramework.MapModeDef>
+
+  <MapModeFramework.MapModeDef MayRequireAnyOf="NozoMe.MapModeFramework,koth.RealisticPlanets2">
+    <defName>SynapseResidence</defName>
+    <label>residences</label>
+    <description>Shades each tile by how its people are housed — rural homesteads (extended families on wide land) in green, cities (nuclear households on small lots) in red. The label counts residences, so population reads as homes, not head count.</description>
+    <mapModeClass>RegionsAndSocieties.MapMode_Residence</mapModeClass>
     <worldLayerClass>MapModeFramework.WorldLayer_MapMode_Terrain</worldLayerClass>
     <iconPath>UI/MapModes/Default</iconPath>
     <canCache>true</canCache>
@@ -102,6 +113,17 @@
       <doBorders>true</doBorders>
       <borderWidth>0.7</borderWidth>
     </RegionProperties>
+  </MapModeFramework.MapModeDef>
+
+  <MapModeFramework.MapModeDef MayRequireAnyOf="NozoMe.MapModeFramework,koth.RealisticPlanets2">
+    <defName>SynapseNaturalBarriers</defName>
+    <label>biomes &amp; walls</label>
+    <description>Debug (#20): colours every land tile by its biome, with the partition's hard walls — impassable rock and open water — shown distinctly on top. Since the partition walls on biome edges, a region border that follows a colour change is a true biome edge; one running through a single colour is a same-biome size cut. Hovering a tile names its actual biome.</description>
+    <mapModeClass>RegionsAndSocieties.MapMode_NaturalBarriers</mapModeClass>
+    <worldLayerClass>MapModeFramework.WorldLayer_MapMode_Terrain</worldLayerClass>
+    <iconPath>UI/MapModes/Default</iconPath>
+    <canCache>true</canCache>
+    <includeWater>true</includeWater>
   </MapModeFramework.MapModeDef>
 
   <MapModeFramework.MapModeDef MayRequireAnyOf="NozoMe.MapModeFramework,koth.RealisticPlanets2">

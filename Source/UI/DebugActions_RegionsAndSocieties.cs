@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Reflection;
 using LudeonTK;
 using RimWorld;
@@ -74,6 +75,12 @@ namespace RegionsAndSocieties.UI
             Log.Message(RegionDebugReports.ShadingReport());
         }
 
+        [DebugAction("Regions and Societies", "R&S: verify source-culling (#20 perf)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void VerifySourceCulling()
+        {
+            Log.Message(Demographics.RegionDemographicsUtility.VerifyCulling());
+        }
+
         [DebugAction("Regions and Societies", "R&S: holdings report (#67)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
         private static void HoldingsReport()
         {
@@ -96,6 +103,222 @@ namespace RegionsAndSocieties.UI
         private static void BorderOverlayReport()
         {
             Log.Message(RegionDebugReports.BorderOverlayReport());
+        }
+
+        [DebugAction("Regions and Societies", "R&S: partition audit (#20)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void PartitionAudit()
+        {
+            Log.Message(RegionDebugReports.PartitionAuditReport());
+        }
+
+        [DebugAction("Regions and Societies", "R&S: world + region shape report (#20)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void WorldShapeReport()
+        {
+            // The world's reproduction key (seed + settings) + the worst-shaped regions. Because the
+            // partition is deterministic from the terrain, this is what lets a "region N is horrid" report
+            // be regenerated and fixed. Also auto-logged at worldgen.
+            Log.Message(RegionDebugReports.WorldShapeReport());
+        }
+
+        [DebugAction("Regions and Societies", "R&S: dump partition to CSV (#20)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void DumpPartitionCsv()
+        {
+            Log.Message(RegionDebugReports.DumpPartitionCsv());
+        }
+
+        [DebugAction("Regions and Societies", "R&S: regenerate provinces (#20)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void RegenerateProvinces()
+        {
+            Log.Message(RegionDebugReports.RegenerateAndAudit());
+        }
+
+        [DebugAction("Regions and Societies", "R&S: run population dynamics pass (#5/#8)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void RunPopulationDynamicsPass()
+        {
+            // Force one accrete->migrate pass now and dump the before/after per-region dynamic delta, so the
+            // conservation and drift-toward-the-colony properties are verifiable headlessly (required by #5/#8).
+            var mgr = Find.World?.GetComponent<SynapseRegionManager>();
+            if (mgr == null) { Log.Warning("[R&S] population dynamics: no region manager"); return; }
+
+            int colony = Integration.PopulationDynamics.ColonyRegion(mgr);
+            var land = mgr.Provinces.FindAll(p => p.provinceType == ProvinceType.Land);
+
+            float beforeSum = 0f;
+            var before = new System.Collections.Generic.Dictionary<int, float>();
+            foreach (var p in land) { float d = mgr.PopulationDeltaOf(p.id); before[p.id] = d; beforeSum += d; }
+
+            float moved = mgr.RunPopulationDynamicsNow();
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"[R&S] population dynamics pass (#5/#8): governance={mgr.StrictTerritorialOwnership}, colony region={colony}, moved={moved:0.0} people");
+            float afterSum = 0f;
+            var changed = new System.Collections.Generic.List<(int id, float before, float after)>();
+            foreach (var p in land)
+            {
+                float a = mgr.PopulationDeltaOf(p.id);
+                afterSum += a;
+                if (System.Math.Abs(a - before[p.id]) > 0.001f) changed.Add((p.id, before[p.id], a));
+            }
+            sb.AppendLine($"total delta before={beforeSum:0.0} after={afterSum:0.0} (conserved if equal), regions changed={changed.Count}");
+            changed.Sort((x, y) => System.Math.Abs(y.after - y.before).CompareTo(System.Math.Abs(x.after - x.before)));
+            for (int i = 0; i < changed.Count && i < 12; i++)
+                sb.AppendLine($"  region {changed[i].id}: delta {changed[i].before:0.0} -> {changed[i].after:0.0}");
+            Log.Message(sb.ToString());
+        }
+
+        // Headless visual validation (0.3.0): switch the world view to an overlay, then grab the rendered
+        // frame with Unity's own capture — no OS-level screenshot needed, and it works while the game sits
+        // on another virtual desktop. Two parameterless actions (a parameter breaks the whole debug menu).
+        [DebugAction("Regions and Societies", "R&S: show population density overlay", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void ShowPopulationDensityOverlay()
+        {
+            if (Find.World == null) return;
+            Find.World.renderer.wantedMode = WorldRenderMode.Planet;
+            var comp = MapModeFramework.MapModeComponent.Instance;
+            var mode = comp?.mapModes?.FirstOrDefault(m => m.def.defName == "SynapsePopulationDensity");
+            if (mode == null) { Log.Warning("[R&S] density overlay: map mode 'SynapsePopulationDensity' not found"); return; }
+            comp.SwitchMapMode(mode);
+
+            // Clear the stage: the debug log auto-opens on any warning and would cover the map.
+            Find.WindowStack?.TryRemove(typeof(EditWindow_Log), false);
+
+            // Frame the densest tile in the world (the biggest city and its sprawl), zoomed in.
+            int best = -1, bestPop = 0;
+            int tiles = Find.WorldGrid.TilesCount;
+            for (int t = 0; t < tiles; t++)
+            {
+                int p = PopulationDensityUtility.GetSourcePopulationAtTile(t);
+                if (p > bestPop) { bestPop = p; best = t; }
+            }
+            if (best >= 0)
+            {
+                Find.WorldCameraDriver.JumpTo(best);
+                // Altitude is a private field on the driver; nudge it close so a city and its outskirts fill the view.
+                var drv = Find.WorldCameraDriver;
+                foreach (string f in new[] { "desiredAltitude", "altitude" })
+                {
+                    var fi = typeof(WorldCameraDriver).GetField(f, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                    if (fi != null && fi.FieldType == typeof(float)) fi.SetValue(drv, 170f);
+                }
+            }
+            Log.Message($"[R&S] density overlay: world view opened, population density map mode active, camera on tile {best} (pop {bestPop}).");
+        }
+
+        [DebugAction("Regions and Societies", "R&S: screenshot current view (Unity capture)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void ScreenshotCurrentView()
+        {
+            string dir = System.IO.Path.Combine(GenFilePaths.SaveDataFolderPath, "Screenshots");
+            System.IO.Directory.CreateDirectory(dir);
+            string path = System.IO.Path.Combine(dir, "rs-view-" + System.DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".png");
+            ScreenCapture.CaptureScreenshot(path);
+            Log.Message("[R&S] screenshot requested: " + path + " (written by Unity at the end of the frame)");
+        }
+
+        [DebugAction("Regions and Societies", "R&S: open region demographics panel (#26)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void OpenRegionDemographicsPanel()
+        {
+            // Opens the visual demographic panel (#26) for the selected land province, or the first one
+            // found when nothing is selected — so the panel's render path is exercised headlessly (any
+            // draw-time exception surfaces in the log) and a human can eyeball it from the debug menu.
+            var mgr = Find.World?.GetComponent<SynapseRegionManager>();
+            if (mgr == null) { Log.Warning("[R&S] open region panel: no region manager"); return; }
+
+            int tile = SelectedWorldTile();
+            GeographicProvince province = tile >= 0 ? mgr.GetProvinceForTile(tile) : null;
+            if (province == null || province.provinceType != ProvinceType.Land)
+            {
+                province = null;
+                var all = mgr.Provinces;
+                if (all != null)
+                    for (int i = 0; i < all.Count; i++)
+                        if (all[i] != null && all[i].provinceType == ProvinceType.Land) { province = all[i]; break; }
+                tile = province != null && province.tiles != null && province.tiles.Count > 0 ? province.tiles[0] : -1;
+            }
+            if (province == null) { Log.Warning("[R&S] open region panel: no land province found"); return; }
+
+            RegionInfoWindow.OpenFor(province, tile);
+            Log.Message($"[R&S] opened region demographics panel for region {province.id} ({province.name}).");
+        }
+
+        [DebugAction("Regions and Societies", "R&S: faction character matrix (#27)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void FactionCharacterReport()
+        {
+            // #27: the canonical modifier matrix, one row per humanlike faction DEF across the base game
+            // and every active DLC — its module, tech level, archetype, and the knowledge/wealth skews it
+            // carries, plus the resulting education index and characteristic wealth. This is the data
+            // behind the faction-character infographic; deterministic, no live world needed.
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("=== R&S faction character matrix (#27) ===");
+            sb.AppendLine("defName | module | tech | archetype | knowSkew | wealthMult | eduIdx | wealth");
+            foreach (var def in DefDatabase<FactionDef>.AllDefs)
+            {
+                if (def == null || !def.humanlikeFaction || def.isPlayer) continue;
+                int tech = (int)def.techLevel;
+                var arch = Demographics.FactionCharacterRules.Classify(def.defName, tech, def.permanentEnemy);
+                var ch = Demographics.FactionCharacterRules.CharacterOf(arch);
+                int eduIdx = Demographics.EducationRules.Index(Demographics.EducationRules.Pyramid(tech, ch.knowledgeSkew, 0f));
+                int wealth = (int)System.Math.Round(BaseWealthFor(tech) * ch.wealthMultiplier);
+                string module = def.modContentPack?.Name ?? "?";
+                sb.AppendLine($"{def.defName} | {module} | {def.techLevel} | {arch} | {ch.knowledgeSkew:+0.00;-0.00} | {ch.wealthMultiplier:0.00} | {eduIdx} | {wealth}");
+            }
+            Log.Message(sb.ToString());
+        }
+
+        // Mirror of FactionDemographicProfile.BaseWealth for the matrix report (kept local so the report
+        // has no reason to widen that private table's visibility).
+        private static int BaseWealthFor(int tech)
+        {
+            switch (tech)
+            {
+                case 1: case 2: return 120;   // Animal / Neolithic
+                case 3: return 250;           // Medieval
+                case 4: return 500;           // Industrial
+                case 5: return 1000;          // Spacer
+                case 6: case 7: return 2000;  // Ultra / Archotech
+                default: return 400;
+            }
+        }
+
+        [DebugAction("Regions and Societies", "R&S: settlement growth curve (#6)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void SettlementGrowth()
+        {
+            Log.Message(RegionDebugReports.SettlementGrowthReport(SelectedWorldTile()));
+        }
+
+        [DebugAction("Regions and Societies", "R&S: outpost archetype preview (#18)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void OutpostArchetypePreview()
+        {
+            // #18: for the selected land province (or the first found), report the archetype the
+            // position/faction-aware scorer would pick per candidate tile — without placing anything, so
+            // it works with no outpost creator (VOE) installed. Validates the worldgen-fed inputs + choice.
+            var mgr = Find.World?.GetComponent<SynapseRegionManager>();
+            if (mgr == null) { Log.Warning("[R&S] outpost preview: no region manager"); return; }
+
+            int tile = SelectedWorldTile();
+            GeographicProvince province = tile >= 0 ? mgr.GetProvinceForTile(tile) : null;
+            if (province == null || province.provinceType != ProvinceType.Land)
+            {
+                province = null;
+                var all = mgr.Provinces;
+                if (all != null)
+                    for (int i = 0; i < all.Count; i++)
+                        if (all[i] != null && all[i].provinceType == ProvinceType.Land) { province = all[i]; break; }
+            }
+            if (province == null) { Log.Warning("[R&S] outpost preview: no land province found"); return; }
+
+            // Prefer a province that has an anchor settlement, so the preview shows the position/faction
+            // pattern rather than the terrain-only degrade path.
+            string preview = OutpostSeedingUtility.PreviewArchetypes(province);
+            if (preview.Contains("no anchor") && mgr.Provinces != null)
+            {
+                foreach (var p in mgr.Provinces)
+                {
+                    if (p == null || p.provinceType != ProvinceType.Land) continue;
+                    string pr = OutpostSeedingUtility.PreviewArchetypes(p);
+                    if (!pr.Contains("no anchor")) { preview = pr; break; }
+                }
+            }
+            Log.Message(preview);
         }
 
         // #72 border-overlay test tooling. Each reads the selected world tile (select a province on the
@@ -304,7 +527,8 @@ namespace RegionsAndSocieties.UI
         // throws for a method with parameters — inside the Dialog_Debug constructor, so the ENTIRE debug
         // actions menu fails to open for anyone with the mod installed. The old IntVec3 province-id
         // helper here is removed; use the parameterless "R&S: ownership derivation (#69)" (selected
-        // tile) instead. Never give a [DebugAction] method a parameter.
+        // tile), or the headless MCP tool rt_ownership_derivation (RegionMcpTools) for a province by id.
+        // Never give a [DebugAction] method a parameter.
 
         /// <summary>
         /// #77 validation. The demographic pressure field is surface-only; before the fix an off-surface or

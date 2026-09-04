@@ -64,6 +64,27 @@ namespace RegionsAndSocieties.Integration
                 "R&T player placement (#61): whether the player may settle a tile. Args: {} = sample one province per rival ownership tier; {\"tileId\":N} = probe one tile.",
                 new { type = "object", properties = new { tileId = new { type = "integer" } } },
                 (Func<string, string>)PlacementProbeHandler);
+
+            TryRegister(register, "rt_partition_audit",
+                "R&T border-first partition (#20): land coverage, province-size distribution + histogram, average shape index, and a tail/neck detector (pendant-tile count; target 0). The numeric check on the new river-basin generator.",
+                new { type = "object", properties = new { } },
+                (Func<string, string>)(_ => Safe(RegionDebugReports.PartitionAuditReport)));
+
+            TryRegister(register, "rt_ownership_derivation",
+                "R&T ownership derivation (#69) for one province by id. Args: {\"provinceId\":N}. The headless channel for province-by-id ownership (the human menu uses the selected-tile 'R&S: ownership derivation' action). A [DebugAction] can't take an id argument without breaking RimWorld's debug menu, so this lives here.",
+                new { type = "object", properties = new { provinceId = new { type = "integer" } } },
+                (Func<string, string>)OwnershipDerivationHandler);
+        }
+
+        private static string OwnershipDerivationHandler(string argsJson)
+        {
+            try
+            {
+                var m = Regex.Match(argsJson ?? "", "\"provinceId\"\\s*:\\s*(-?\\d+)");
+                if (!m.Success) return Err("provinceId (integer) is required");
+                return ReportJson(RegionDebugReports.OwnershipDerivationForProvinceId(int.Parse(m.Groups[1].Value)));
+            }
+            catch (Exception ex) { return Err(ex.Message); }
         }
 
         // The report methods return a human-readable multi-line string, but the game-tool bridge

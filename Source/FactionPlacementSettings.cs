@@ -51,7 +51,22 @@ namespace RegionsAndSocieties
         public static Dictionary<string, FactionPlacementProfile> profiles = new Dictionary<string, FactionPlacementProfile>();
         public static int minRegionSize = 75;
         public static int maxRegionSize = 150;
+
+        /// <summary>The world-partition algorithm applied to NEWLY generated worlds, by
+        /// <see cref="Partition.IRegionPartitioner.AlgorithmId"/>. An existing save keeps the algorithm it
+        /// was generated with (stamped on the world), so changing this never re-cuts a live map.</summary>
+        public static string partitionAlgorithmId = Partition.RegionPartitionerRegistry.DefaultAlgorithmId;
         public static float maxThreatPercent = 0.50f;
+
+        /// <summary>
+        /// Dev-only knobs, not in the settings UI (set them in the mod-settings XML). They exist for the
+        /// #38 worldgen perf matrix: <c>devQuicktestCoverage</c> above 0 overrides the planet coverage of a
+        /// <c>-quicktest</c> launch (vanilla quicktest fixes it at 30%) and <c>devQuicktestSeed</c> pins the
+        /// world seed, so a scripted run can generate the same world at 30/50/100%. Neither has any effect
+        /// on a normal game.
+        /// </summary>
+        public static float devQuicktestCoverage = 0f;
+        public static string devQuicktestSeed = "";
 
         /// <summary>
         /// #51: the single density knob — the target fraction of livable LAND area claimed by territories.
@@ -113,8 +128,11 @@ namespace RegionsAndSocieties
             Scribe_Values.Look(ref minRegionSize, "minRegionSize", 75);
             Scribe_Values.Look(ref maxRegionSize, "maxRegionSize", 150);
             Scribe_Values.Look(ref maxThreatPercent, "maxThreatPercent", 0.50f);
+            Scribe_Values.Look(ref devQuicktestCoverage, "devQuicktestCoverage", 0f);
+            Scribe_Values.Look(ref devQuicktestSeed, "devQuicktestSeed", "");
             Scribe_Values.Look(ref claimedLandAreaPercent, "maxSettlementPercentOfRegions", 0.50f);
             Scribe_Values.Look(ref territoryCompactness, "territoryCompactness", 0.6f);
+            Scribe_Values.Look(ref partitionAlgorithmId, "partitionAlgorithmId", Partition.RegionPartitionerRegistry.DefaultAlgorithmId);
             Scribe_Values.Look(ref strictTerritorialOwnershipDefault, "strictTerritorialOwnershipDefault", true);
             Scribe_Values.Look(ref showCalculationBreakdowns, "showCalculationBreakdowns", false);
             Scribe_Values.Look(ref regionPanelUseShift, "regionPanelUseShift", false);

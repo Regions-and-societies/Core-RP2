@@ -23,8 +23,8 @@ Each of the following is supported by its own patch mod under the [Regions-and-s
 
 **Vanilla Outposts Expanded** (`vanillaexpanded.outposts`) — via **VOE-CP**.
 - Outposts are recognised and count toward territorial claims.
-- The patch also contributes the outpost *creator* that worldgen outpost seeding needs; without it, seeding is silently inert.
-- Outposts are otherwise player-founded from a caravan, so a freshly generated world having none (with seeding off) is correct, not a fault.
+- The patch also contributes the outpost *creator* that outpost seeding will use; worldgen seeding itself is deferred to 0.4.0, so in 0.3.0 the creator is registered but not called at world generation.
+- Outposts are otherwise player-founded from a caravan, so a freshly generated world having none is correct, not a fault.
 
 **Vanilla Expanded Framework** (`OskarPotocki.VanillaFactionsExpanded.Core`) — via **VFE-CP**.
 - Contributes exactly one world object of its own, a moving base, which is classified as a caravan. A base that moves cannot hold a province stably.
@@ -58,7 +58,7 @@ No ordering constraint has been observed against Empire, VOE, VEF, World Dominat
 
 ## Known incompatibilities
 
-- **Layered Atmosphere and Orbit (LAO)** (`MrHydralisk.LayeredAtmosphereOrbit`) — declared `incompatibleWith` since 0.2.3. LAO restructures the planet-layer stack that this mod's faction placement hooks into, leaving world generation without the base surface layer it expects; the result is a broken ("black") world on generate.
+- **Layered Atmosphere and Orbit (LAO)** (`MrHydralisk.LayeredAtmosphereOrbit`) — **compatible as of 0.3.0.** It was `incompatibleWith` in 0.2.3: LAO's `WorldDrawLayer.Visible` render patch dereferences each layer's planet layer, and this mod's region-border and capital overlays are *global* draw layers with none, so LAO null-referenced and black-worlded the map. Those overlays are now pinned to the surface layer, so LAO renders cleanly; the incompatibility has been removed. (LAO requires the Odyssey DLC.)
 
 ---
 

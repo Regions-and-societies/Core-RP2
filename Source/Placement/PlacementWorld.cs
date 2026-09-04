@@ -65,9 +65,24 @@ namespace RegionsAndSocieties.Placement
         /// </summary>
         public Func<object, object, bool> FactionsMatch;
 
+        /// <summary>
+        /// Optional bounded form of <see cref="Distance"/>: (a, b, maxDist) → the traversal distance when it
+        /// is at most maxDist, otherwise any value greater than maxDist (int.MaxValue is fine). Rules that
+        /// only ask "is it within N?" go through this, so the live game can stop its flood search at N
+        /// instead of walking the whole planet to measure a far-away holding (#38).
+        /// </summary>
+        public Func<int, int, int, int> DistanceWithin;
+
         public int DistanceBetween(int a, int b)
         {
             return Distance == null ? int.MaxValue : Distance(a, b);
+        }
+
+        /// <summary>Distance when it is at most <paramref name="maxDist"/>; otherwise a value above it.</summary>
+        public int DistanceBetween(int a, int b, int maxDist)
+        {
+            if (DistanceWithin != null) return DistanceWithin(a, b, maxDist);
+            return DistanceBetween(a, b);
         }
 
         public int ProvinceAt(int tile)

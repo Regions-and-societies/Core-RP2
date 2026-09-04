@@ -49,6 +49,12 @@ namespace RegionsAndSocieties.Integration
             // Master switch off: govern vanilla-derived objects only, exactly as before 0.7.
             if (!WorldObjectIntegrationSettings.masterEnabled) return WorldObjectKind.Ignored;
 
+            // Off the root surface (orbit / atmosphere / moons / asteroids — Odyssey and Layered
+            // Atmosphere & Orbit layers): not a territorial holding in R&S's surface model. Ignore it
+            // cleanly rather than warning about an unrecognised type (#24), so multi-layer worlds stay
+            // quiet and a layer object is never mistaken for a settlement.
+            if (IsOffSurface(obj)) return WorldObjectKind.Ignored;
+
             WorldObjectKind kind = HeuristicClassify(obj);
             if (kind != WorldObjectKind.Unknown) return kind;
 
@@ -81,6 +87,16 @@ namespace RegionsAndSocieties.Integration
             }
 
             return WorldObjectKind.Unknown;
+        }
+
+        /// <summary>True when the object sits on a non-root-surface planet layer (Odyssey/LAO orbit,
+        /// atmosphere, moon, asteroid). An invalid/absent tile is left to the heuristics — some objects
+        /// legitimately have no tile.</summary>
+        private static bool IsOffSurface(WorldObject obj)
+        {
+            PlanetTile pt = obj.Tile;
+            PlanetLayer layer = pt.Valid ? pt.Layer : null;
+            return layer != null && !layer.IsRootSurface;
         }
 
         private static void NoteUnknown(WorldObject obj)

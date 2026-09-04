@@ -12,20 +12,26 @@ namespace RegionsAndSocieties
         private static Material[] densityMats = null;
 
         // The heatmap is normalised against the highest THEORETICAL settlement population in the world
-        // (0.8): a tile at that ceiling is rich red, most settlements — which drift to two-thirds of
-        // their cap — land in yellow, and small pawn-dwelling pockets stay a faded green. Five
-        // fraction bands run green → yellow-green → yellow → orange → red, each darkened by elevation.
+        // (0.8): a tile at that ceiling is bright yellow, most settlements — which drift to two-thirds of
+        // their cap — land in the red-orange bands, and small pawn-dwelling pockets stay a faded violet.
+        // Five fraction bands run violet → magenta → hot red → orange → bright yellow (the "magma" ramp),
+        // each darkened by elevation. 0.3.0: this replaces green-to-red, which dissolved into the green
+        // terrain; blue was tried and read as water. Violet/magenta/yellow occur nowhere in the planet's
+        // own palette (green land, blue sea, tan desert, grey rock), and the ramp matches the density
+        // heatmap in the mod's preview art.
         private static readonly Color[] SegmentBase = new Color[]
         {
-            new Color(0.35f, 0.65f, 0.25f, 0.50f),   // 0: faded green — low, pawn dwellings
-            new Color(0.65f, 0.78f, 0.18f, 0.55f),   // 1: yellow-green
-            new Color(0.92f, 0.85f, 0.12f, 0.60f),   // 2: yellow — where most settlements sit (~2/3 cap)
-            new Color(0.95f, 0.50f, 0.10f, 0.65f),   // 3: orange
-            new Color(0.90f, 0.12f, 0.10f, 0.70f)    // 4: rich red — at the theoretical max
+            new Color(0.45f, 0.20f, 0.75f, 0.50f),   // 0: violet — low, pawn dwellings
+            new Color(0.75f, 0.20f, 0.70f, 0.55f),   // 1: magenta
+            new Color(0.95f, 0.30f, 0.42f, 0.60f),   // 2: hot red-pink — where most settlements sit (~2/3 cap)
+            new Color(0.98f, 0.58f, 0.15f, 0.65f),   // 3: orange
+            new Color(1.00f, 0.90f, 0.25f, 0.72f)    // 4: bright yellow — at the theoretical max
         };
 
-        // Fraction-of-reference-max thresholds for the five bands. Tuned in-game against the heatmap.
-        private static readonly float[] SegmentThresholds = new float[] { 0.15f, 0.35f, 0.60f, 0.85f };
+        // Band thresholds on the LOG scale (fraction = log(1+pop) / log(1+densest tile)). Against a
+        // 150-person core: violet up to ~3 people (a hamlet), magenta to ~11 (outskirts, pockets), red
+        // to ~33 (a village core), orange to ~80 (a town core), yellow above (city and metropolis cores).
+        private static readonly float[] SegmentThresholds = new float[] { 0.30f, 0.50f, 0.70f, 0.88f };
 
         public static void InitializeMaterials()
         {
@@ -104,10 +110,18 @@ namespace RegionsAndSocieties
                 return BaseContent.ClearMat;   // no dwellings here — leave the terrain unshaded
             }
 
-            // Normalise against the highest theoretical settlement population in this world (0.8), so
-            // the ramp means the same thing regardless of the multiplier or the factions' tech levels.
-            int referenceMax = Sizing.SettlementSizeUtility.ReferenceMaxPopulation();
-            float fraction = referenceMax > 0 ? (float)pop / referenceMax : 0f;
+            // Normalise against the densest tile actually in the world (0.3.0): the sprawl field is
+            // conserved, so a settlement tile holds its core share, never the theoretical cap, and a
+            // fixed reference left the whole map in the bottom band. Relative to the densest tile, the
+            // biggest city is always the top colour and everything else reads against it.
+            // Logarithmic, not linear: a city's outskirts hold a few percent of its core, so a linear
+            // scale put every tile but the core in the bottom band. On a log scale (against the densest
+            // tile) a hamlet is violet, a village core red, a town core orange and only the biggest
+            // cities yellow — the hotspots visibly step up through the ramp.
+            int referenceMax = PopulationDensityUtility.MaxTilePopulation();
+            float fraction = referenceMax > 1
+                ? Mathf.Log(1f + pop) / Mathf.Log(1f + referenceMax)
+                : (referenceMax > 0 ? (float)pop / referenceMax : 0f);
 
             int densitySegment = 0;
             for (int s = SegmentThresholds.Length - 1; s >= 0; s--)

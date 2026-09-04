@@ -68,34 +68,82 @@ namespace RegionsAndSocieties
             return manager == null || manager.StrictTerritorialOwnership;
         }
 
+        // The snapshot is stable within one game tick with an unchanged world-object set, which is exactly
+        // the settle screen's situation (paused, probing hundreds of tiles). Caching it there turns an
+        // O(tiles × worldObjects) rebuild storm into one build per frame; the (tick, objectCount) key still
+        // refreshes every tick and the moment a settlement is added or destroyed, so a placement is never
+        // judged on a stale world.
+        private static PlacementWorld _cachedWorld;
+        private static int _cachedWorldTick = int.MinValue;
+        private static int _cachedWorldObjCount = -1;
+
         /// <summary>
-        /// Snapshot of everything the rules need. Rebuilt per query: the underlying world object
-        /// list changes constantly and a stale cache here would refuse placements on the strength
-        /// of a settlement that was destroyed ten minutes ago.
+        /// Snapshot of everything the rules need, cached for the current tick + world-object set. The
+        /// per-faction held-territory walks (each O(provinces)) are memoised within the snapshot, so the
+        /// many same-faction tile probes of one settle screen pay them once, not once per tile.
         /// </summary>
         public static PlacementWorld BuildWorld()
         {
             WorldGrid grid = Find.WorldGrid;
             if (grid == null) return null;
 
+            int tick = Find.TickManager?.TicksGame ?? 0;
+            int objCount = Find.WorldObjects?.AllWorldObjects?.Count ?? 0;
+            if (_cachedWorld != null && _cachedWorldTick == tick && _cachedWorldObjCount == objCount)
+                return _cachedWorld;
+
             var regionManager = Find.World?.GetComponent<SynapseRegionManager>();
             HashSet<Faction> playerControlled = CollectPlayerControlledFactions();
+
+            // Per-snapshot memo of the O(provinces) faction walks.
+            var borderMemo = new Dictionary<Faction, IEnumerable<int>>();
+            var heldMemo = new Dictionary<Faction, IEnumerable<int>>();
 
             var world = new PlacementWorld
             {
                 Distance = (a, b) => grid.TraversalDistanceBetween(a, b),
+                DistanceWithin = (a, b, maxDist) => BoundedTraversalDistance(grid, a, b, maxDist),
                 Holdings = CollectHoldings(),
                 FactionsMatch = (a, b) => playerControlled.Contains(a as Faction) && playerControlled.Contains(b as Faction),
                 ProvinceIdAt = tile => regionManager != null ? regionManager.GetProvinceId(tile) : -1,
                 ControlOf = (provinceId, faction) => ControlOf(regionManager, provinceId, faction as Faction),
-                HeldBorderTiles = faction => HeldBorderTiles(regionManager, faction as Faction),
-                HeldProvinceIds = faction => HeldProvinceIds(regionManager, faction as Faction),
+                HeldBorderTiles = faction =>
+                {
+                    if (!(faction is Faction f)) return System.Array.Empty<int>();
+                    if (!borderMemo.TryGetValue(f, out var r)) { r = HeldBorderTiles(regionManager, f); borderMemo[f] = r; }
+                    return r;
+                },
+                HeldProvinceIds = faction =>
+                {
+                    if (!(faction is Faction f)) return System.Array.Empty<int>();
+                    if (!heldMemo.TryGetValue(f, out var r)) { r = HeldProvinceIds(regionManager, f); heldMemo[f] = r; }
+                    return r;
+                },
                 ProvincesAdjacent = (a, b) => ProvinceAdjacency.AreAdjacent(regionManager, a, b),
                 IsPlayerControlled = faction => faction is Faction f && playerControlled.Contains(f),
                 ExclusiveRivalAt = (provinceId, faction) => ExclusiveRivalAt(regionManager, provinceId, faction as Faction)
             };
 
+            _cachedWorld = world;
+            _cachedWorldTick = tick;
+            _cachedWorldObjCount = objCount;
             return world;
+        }
+
+        /// <summary>
+        /// Traversal distance capped at <paramref name="maxDist"/> (#38). The unbounded pathfinder floods
+        /// outward until it reaches its target, so measuring a holding on the far side of the planet walked
+        /// every tile — and the placement rules asked that of every holding for every candidate tile, which
+        /// is what ground worldgen's outpost seeding to a halt at high coverage. A straight-line pre-check
+        /// skips holdings that cannot possibly be within range (a hop path is never shorter than roughly the
+        /// great-circle tile distance; the ×2+2 margin covers tile-size variation), and the flood itself is
+        /// told to stop at the cap. Returns int.MaxValue beyond the cap.
+        /// </summary>
+        public static int BoundedTraversalDistance(WorldGrid grid, int a, int b, int maxDist)
+        {
+            if (a == b) return 0;
+            if (maxDist < int.MaxValue && grid.ApproxDistanceInTiles(a, b) > maxDist * 2f + 2f) return int.MaxValue;
+            return grid.TraversalDistanceBetween(a, b, true, maxDist);
         }
 
         private static List<PlacementHolding> CollectHoldings()
@@ -130,7 +178,7 @@ namespace RegionsAndSocieties
         {
             var factions = new HashSet<Faction>();
 
-            Faction player = Faction.OfPlayer;
+            Faction player = Faction.OfPlayerSilentFail;
             if (player != null) factions.Add(player);
 
             if (Find.WorldObjects == null) return factions;

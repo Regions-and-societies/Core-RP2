@@ -4,7 +4,7 @@
     <author>Regions and Societies Team</author>
     <packageId>RegionsAndSocieties.CoreRP2</packageId>
     <url>https://github.com/Regions-and-societies/Core-RP2</url>
-    <modVersion>0.2.3</modVersion>
+    <modVersion>0.3.0</modVersion>
     <supportedVersions>
         <li>1.6</li>
     </supportedVersions>
@@ -27,9 +27,6 @@
     <incompatibleWith>
         <li>RegionsAndSocieties.Core</li>
         <li>NozoMe.MapModeFramework</li>
-        <!-- LAO restructures the planet-layer stack that faction placement hooks into, leaving
-             world generation without the base surface layer it expects (0.2.3). -->
-        <li>MrHydralisk.LayeredAtmosphereOrbit</li>
         <!-- Regions and Societies IS the continuation of Regions and Territories under a new identity.
              Running both loads two competing region/territory generators over the same world. Never
              load both. -->
@@ -47,14 +44,14 @@
     </loadAfter>
     <description>
 Discord Community: https://discord.gg/eVBebZ2N9s
-Version: v0.2.3 (Target: RimWorld 1.6)
+Version: v0.3.0 (Target: RimWorld 1.6)
 
 Regions and Societies — Realistic Planets 2 edition
 Official Wiki and Documentation: https://github.com/Regions-and-societies/Core-MMF/wiki
 
 This is the Realistic Planets 2 build of Regions and Societies. It is identical to the standard mod except that it runs on the map-mode framework bundled with Realistic Planets 2 instead of the standalone Map Mode Framework. Use this edition if you play with Realistic Planets 2; use the standard edition otherwise. Do not run both editions, or both frameworks, at once.
 
-Regions and Societies overhauls the world map into living geography: dynamic geographic provinces with terrain-aware borders, four-tier faction territory ownership, geography-driven faction placement, regional demographics, a population-density heatmap, trade roads and procedural ruins. It is the continuation of Regions and Territories under a new identity.
+Regions and Societies overhauls the world map into living geography: dynamic geographic provinces with terrain-aware borders, four-tier faction territory ownership, geography-driven faction placement, full regional demographics across seven axes with their own map overlays, a population-density heatmap, trade roads and procedural ruins - all built on the Map Mode Framework. It is the continuation of Regions and Territories under a new identity.
 
 Features:
 - Geographic Domain Mapping: splits the world into dynamic provinces with clear, terrain-aware boundaries.
@@ -63,20 +60,27 @@ Features:
 - Regional Demographics: every region carries a deterministic demographic profile - age structure, sex ratio, xenotypes, ideoligions, wealth, education and employment - derived from the factions pressing on it, their tech and beliefs, and the land itself. Nothing is stored in your save.
 - Demographic Map Overlays: seven world-map overlays, one per axis, plus faction territory and population density, running on Realistic Planets 2's bundled map-mode framework.
 - Region Panel Breakdown: the expanded region readout shows the full demographic profile alongside ownership and economics.
-- One-Click Overlay Toggles: region borders and the Territories / Dwellings map modes each get their own toggle icon in the world-view controls.
 - Hooks for Other Mods: a public API lets war and drafting mods skew a region's sex ratio (drafts, combat losses) with generational recovery, and lets expansion mods rank territory the way core does.
-- Procedural Trade Infrastructure: trade roads between settlements and historical ruins across the world map.
 
 *** BEST ON A NEW COLONY - EXISTING SAVES ARE SUPPORTED IN COMPATIBILITY MODE ***
 A world generated with the mod installed gets everything, including placement rules. A world already in progress is adopted in Compatibility Mode: provinces are drawn and territory is owned and shown, but placement stays with vanilla or whichever mod owns it. The mode is decided once per save and shown under Strict territorial ownership in the mod settings. Removing the mod from an in-progress save is not supported and will log errors.
 
 Requires: Realistic Planets 2, Harmony
 
---- Changelog (v0.2.3) - Worldgen resilience with missing DLC content ---
-- Fixed: black world when DLC content is unresolved. Classic (no-expansion) ideoligion role naming crashed world generation when the Ideology DLC was missing but other content added classic leader-role precepts - including for the player faction, which the 0.2.2 guard could not reach. Role naming is now guarded directly: a missing foundation gets a fallback title, and any naming failure degrades to the fallback instead of a dead world.
-- Graceful DLC degradation in faction generation: a faction needing Royalty title content that isn't resolved is skipped with a single log line and the world generates without it; repeated skips log one line each instead of a wall of stacks.
-- Marked incompatible with Layered Atmosphere and Orbit (LAO): it restructures the planet-layer stack that faction placement hooks into, breaking world generation.
-- Dev quality-of-life: the map-mode test helper now only runs on -quicktest launches, so playing with dev mode on no longer pulls you to the world map after starting a colony.
+--- Changelog (v0.3.0) - Living Population Model ---
+- New region partitioning: regions are drawn INSIDE the terrain's natural sections - biome, mountains and coasts - then cut into even pieces, so borders follow the land instead of a grid. Every region is guaranteed to be a single connected landmass.
+- Pluggable partition algorithm: pick how the world is cut from a dropdown in mod settings (contain-then-subdivide, or the legacy anchor-Voronoi look), and other mods can register their own algorithm. Each world remembers the algorithm and version it was generated with, so loading an old save never re-cuts its map.
+- Regional demographic inspection: a three-tab region panel (Region / Population / Economy) with a province mini-map, and seven demographic axes - age, sex, xenotype, ideoligion, wealth, education, employment - as world-map overlays and visual bars. Xenotype/ideoligion degrade cleanly without Biotech/Ideology.
+- Faction character: a faction's education, wealth and standing now reflect what it is - raiders read as raiders, an imperial court as an elite - instead of everyone reading the same.
+- Settlements grow over time from in-game birthrates, converging on a tier target without exceeding it.
+- Worldgen performance: two steps that did not scale to the finer partition - Regions and Societies settlement road-linking and outpost seeding at world generation - are out of this release and return reworked in 0.4.0. World generation now logs its total time; measured with all five DLCs and all four companion patches: 24 s at 30% coverage, about 3 minutes at 100% (2,442 regions, 910 settlements).
+- Residence layer: dwellings are modelled separately from raw population, with a rural-to-city occupancy gradient.
+- Population scale: settlement populations are three times larger (cap multiplier default 30, was 10) and a new world starts with its settlements at their comfortable size, so a settled region reads in the hundreds from day one, and the terrain-aware population sprawl is now the one population field: a settlement's people spread over the tiles its sprawl reaches with the total conserved, so the heatmap, tile labels and region totals agree and a city is surrounded by its outskirts instead of a ring of zeros. The density heatmap now runs violet to yellow instead of green to red, so it stands out from the terrain.
+- Map overlays consolidated under a single Regions and Societies menu button.
+- Performance: every region's demographics are precomputed at load, so opening a demographic overlay is instant.
+- Fixed (with thanks to community member 96localk): every generated faction was created hidden - absent from the Factions tab, with no goodwill or leader - and unselected factions could leak into worlds. Factions now generate visible with leaders, only the factions you chose appear, and a one-time repair fixes worlds saved under the bug.
+- Odyssey multi-layer worlds: off-surface world objects (orbital habitats, space sites) are classified and skipped cleanly instead of warning, so regions, demographics and placement stay correct with space factions on the orbit layer.
+- Now compatible with Layered Atmosphere and Orbit: the region-border and capital map overlays are pinned to the surface layer, so LAO's world-render patch no longer null-references on them (previously a "black" world). It is no longer marked incompatible.
 
 Source code: https://github.com/Regions-and-societies/Core-RP2
 Steam Workshop: https://steamcommunity.com/sharedfiles/filedetails/?id=3784666526

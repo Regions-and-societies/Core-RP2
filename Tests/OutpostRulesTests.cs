@@ -64,6 +64,32 @@ namespace OutpostRulesTests
             Check("fertile land on steep ground is mined, not farmed",
                 OutpostArchetypeRules.Choose(Features(plantDensity: 0.9f, hilliness: 2)) == OutpostArchetype.Mining);
 
+            Section("position- and faction-aware archetype (#18 weighted scorer)");
+            // No anchor context (anchorTier None) degrades to the terrain-only chain — the tests above.
+            Check("no anchor context degrades to terrain only",
+                OutpostArchetypeRules.Choose(Features(hilliness: 3)) == OutpostArchetype.Mining);
+
+            // A fertile tile at a capital's core: a tribal capital farms it; an industrial capital makes
+            // it a civic post instead.
+            Check("tribal capital core, fertile -> Farming",
+                OutpostArchetypeRules.Choose(Features(plantDensity: 0.7f, hilliness: 0, distanceToAnchor: 0.1f, anchorTier: SettlementTier.Town, techLevel: 2)) == OutpostArchetype.Farming);
+            Check("industrial capital core, fertile -> a civic post, not a farm",
+                OutpostArchetypeRules.Choose(Features(plantDensity: 0.7f, hilliness: 0, distanceToAnchor: 0.1f, anchorTier: SettlementTier.City, techLevel: 4)) != OutpostArchetype.Farming);
+
+            // The periphery is for extraction and defence, not civic work.
+            Check("industrial frontier mountains -> Mining",
+                OutpostArchetypeRules.Choose(Features(hilliness: 3, plantDensity: 0.3f, distanceToAnchor: 0.9f, anchorTier: SettlementTier.City, techLevel: 4)) == OutpostArchetype.Mining);
+
+            // Faction gate: a tribe cannot field the industrial-tech posts.
+            Check("tribal frontier mountains -> Mining (never an industrial post)",
+                OutpostArchetypeRules.Choose(Features(hilliness: 3, plantDensity: 0.3f, distanceToAnchor: 0.9f, anchorTier: SettlementTier.Town, techLevel: 2)) == OutpostArchetype.Mining);
+
+            // Raiders read the land differently: salvage in the interior, fortlets on the frontier, never civic.
+            Check("pirate frontier -> Defensive",
+                OutpostArchetypeRules.Choose(Features(plantDensity: 0.3f, distanceToAnchor: 0.9f, anchorTier: SettlementTier.City, techLevel: 4, permanentEnemy: true)) == OutpostArchetype.Defensive);
+            Check("pirate core -> Scavenging, not a civic post",
+                OutpostArchetypeRules.Choose(Features(plantDensity: 0.7f, hilliness: 0, distanceToAnchor: 0.1f, anchorTier: SettlementTier.City, techLevel: 4, permanentEnemy: true)) == OutpostArchetype.Scavenging);
+
             Section("tier pyramid — triangular thresholds");
             Check("T1 needs 1 territory", TierPyramidRules.TerritoriesForTier(1) == 1);
             Check("T2 needs 3", TierPyramidRules.TerritoriesForTier(2) == 3);
@@ -126,7 +152,9 @@ namespace OutpostRulesTests
         }
 
         private static TileFeatures Features(int hilliness = 0, float plantDensity = 0f, float treeDensity = 0f,
-            float animalDensity = 0f, float mineralsFraction = 0f, bool coastal = false)
+            float animalDensity = 0f, float mineralsFraction = 0f, bool coastal = false,
+            float distanceToAnchor = 0f, SettlementTier anchorTier = SettlementTier.None,
+            int techLevel = 4, bool permanentEnemy = false)
         {
             return new TileFeatures
             {
@@ -135,7 +163,11 @@ namespace OutpostRulesTests
                 treeDensity = treeDensity,
                 animalDensity = animalDensity,
                 mineralsFraction = mineralsFraction,
-                coastal = coastal
+                coastal = coastal,
+                distanceToAnchor = distanceToAnchor,
+                anchorTier = anchorTier,
+                techLevel = techLevel,
+                permanentEnemy = permanentEnemy
             };
         }
 

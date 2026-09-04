@@ -5,6 +5,7 @@ using RimWorld.Planet;
 using RegionsAndSocieties.Economy;
 using RegionsAndSocieties.Integration;
 using RegionsAndSocieties.Sizing;
+using UnityEngine;
 using Verse;
 
 namespace RegionsAndSocieties
@@ -51,6 +52,7 @@ namespace RegionsAndSocieties
         {
             public Faction faction;
             public SettlementTier tier;
+            public int tile;   // the anchor settlement's tile, for distance-to-anchor (#18)
         }
 
         public static OutpostSeedingResult SeedOutposts()
@@ -103,7 +105,7 @@ namespace RegionsAndSocieties
                     SettlementTier tier = SettlementSizeUtility.TierOf(obj);
                     if (!anchors.TryGetValue(pid, out Anchor existing) || (int)tier > (int)existing.tier)
                     {
-                        anchors[pid] = new Anchor { faction = obj.Faction, tier = tier };
+                        anchors[pid] = new Anchor { faction = obj.Faction, tier = tier, tile = tileId };
                     }
                 }
                 if (kind == WorldObjectKind.Outpost)
@@ -128,11 +130,13 @@ namespace RegionsAndSocieties
                 GeographicProvince province = mgr.GetProvince(pid);
                 if (province?.tiles == null) continue;
 
-                int placedHere = PlaceInProvince(province, anchor, remaining, occupied, result);
+                var chosen = new List<OutpostArchetype>();
+                int placedHere = PlaceInProvince(province, anchor, remaining, occupied, result, chosen);
                 if (placedHere > 0)
                 {
                     result.lines.Add($"province {pid}: {anchor.faction.Name} [{anchor.tier.LabelCapitalized()}] "
-                        + $"had {existing}/{OutpostAllowanceRules.OutpostAllowance(anchor.tier)}, placed {placedHere}");
+                        + $"had {existing}/{OutpostAllowanceRules.OutpostAllowance(anchor.tier)}, placed {placedHere} "
+                        + $"({ArchetypeHistogram(chosen)})");
                 }
             }
 
@@ -142,10 +146,66 @@ namespace RegionsAndSocieties
             return result;
         }
 
-        private static int PlaceInProvince(GeographicProvince province, Anchor anchor, int remaining, HashSet<int> occupied, OutpostSeedingResult result)
+        /// <summary>
+        /// #18 tuning/validation: for a province, resolve its anchor and report which archetype the scorer
+        /// would pick for each habitable candidate tile — WITHOUT placing anything, so it works with no
+        /// outpost creator (VOE) installed. This is how the position/faction-aware choice is eyeballed and
+        /// tuned before VOE-CP maps the archetypes onto concrete defs.
+        /// </summary>
+        public static string PreviewArchetypes(GeographicProvince province)
+        {
+            if (province?.tiles == null) return "no province";
+            WorldGrid grid = Find.WorldGrid;
+            if (grid == null || Find.WorldObjects == null) return "no world";
+
+            Anchor anchor = default;
+            bool found = false;
+            var tileSet = new HashSet<int>(province.tiles);
+            List<WorldObject> all = Find.WorldObjects.AllWorldObjects;
+            for (int i = 0; i < all.Count; i++)
+            {
+                WorldObject o = all[i];
+                if (o?.Faction == null || !o.Tile.Valid || !tileSet.Contains(o.Tile.tileId)) continue;
+                if (WorldObjectClassifier.Classify(o) != WorldObjectKind.Settlement) continue;
+                SettlementTier tier = SettlementSizeUtility.TierOf(o);
+                if (!found || (int)tier > (int)anchor.tier)
+                {
+                    anchor = new Anchor { faction = o.Faction, tier = tier, tile = o.Tile.tileId };
+                    found = true;
+                }
+            }
+            if (!found) return $"province {province.id}: no anchor settlement — archetype would be terrain-only.";
+
+            float radius = ProvinceRadius(grid, anchor.tile, province.tiles);
+            var counts = new Dictionary<OutpostArchetype, int>();
+            int candidates = 0;
+            for (int t = 0; t < province.tiles.Count; t++)
+            {
+                int tileId = province.tiles[t];
+                Tile tile = grid[tileId];
+                if (tile == null || tile.WaterCovered || tile.hilliness == Hilliness.Impassable) continue;
+                if (tile.PrimaryBiome != null && tile.PrimaryBiome.impassable) continue;
+
+                candidates++;
+                OutpostArchetype a = OutpostArchetypeRules.Choose(BuildFeatures(province, tileId, tile, anchor, grid, radius));
+                counts.TryGetValue(a, out int c);
+                counts[a] = c + 1;
+            }
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"=== R&S outpost archetype preview (#18) — province {province.id} ===");
+            sb.AppendLine($"anchor: {anchor.faction.Name} [{anchor.tier.LabelCapitalized()}]  tech={anchor.faction.def?.techLevel}  hostile={anchor.faction.def?.permanentEnemy}");
+            sb.AppendLine($"{candidates} candidate tiles would choose:");
+            foreach (KeyValuePair<OutpostArchetype, int> kv in counts)
+                sb.AppendLine($"  {kv.Key}: {kv.Value}");
+            return sb.ToString().TrimEnd();
+        }
+
+        private static int PlaceInProvince(GeographicProvince province, Anchor anchor, int remaining, HashSet<int> occupied, OutpostSeedingResult result, List<OutpostArchetype> chosen)
         {
             int placed = 0;
             WorldGrid grid = Find.WorldGrid;
+            float radius = ProvinceRadius(grid, anchor.tile, province.tiles);   // distance-to-anchor normaliser (#18)
 
             for (int t = 0; t < province.tiles.Count && placed < remaining; t++)
             {
@@ -163,11 +223,12 @@ namespace RegionsAndSocieties
                     continue;
                 }
 
-                OutpostArchetype archetype = OutpostArchetypeRules.Choose(BuildFeatures(province, tileId, tile));
+                OutpostArchetype archetype = OutpostArchetypeRules.Choose(BuildFeatures(province, tileId, tile, anchor, grid, radius));
                 if (HoldingCreatorRegistry.TryCreate(WorldObjectKind.Outpost, archetype, anchor.faction, tileId, out WorldObject created)
                     && created != null)
                 {
                     occupied.Add(tileId);
+                    chosen.Add(archetype);
                     placed++;
                     result.placed++;
                 }
@@ -176,9 +237,29 @@ namespace RegionsAndSocieties
             return placed;
         }
 
-        private static TileFeatures BuildFeatures(GeographicProvince province, int tileId, Tile tile)
+        /// <summary>The province's reach from its anchor: the largest anchor→tile great-circle angle, used
+        /// to normalise distance-to-anchor into 0 (core) .. 1 (edge). At least a tiny value so a one-tile
+        /// province doesn't divide by zero.</summary>
+        private static float ProvinceRadius(WorldGrid grid, int anchorTile, List<int> tiles)
+        {
+            Vector3 anchorPos = grid.GetTileCenter(anchorTile);
+            float max = 0f;
+            for (int i = 0; i < tiles.Count; i++)
+            {
+                float d = Vector3.Angle(anchorPos, grid.GetTileCenter(tiles[i]));
+                if (d > max) max = d;
+            }
+            return max > 0.0001f ? max : 0.0001f;
+        }
+
+        /// <summary>Build the archetype-choice inputs (#18): terrain from the tile/biome/region, plus the
+        /// position (normalised distance to the anchor) and faction context (anchor tier, tech, hostility)
+        /// so the choice reads position- and faction-aware.</summary>
+        private static TileFeatures BuildFeatures(GeographicProvince province, int tileId, Tile tile, Anchor anchor, WorldGrid grid, float radius)
         {
             BiomeDef biome = tile.PrimaryBiome;
+            float dist = Vector3.Angle(grid.GetTileCenter(anchor.tile), grid.GetTileCenter(tileId)) / radius;
+            FactionDef def = anchor.faction?.def;
             return new TileFeatures
             {
                 hilliness = HillinessLevel(tile.hilliness),
@@ -186,7 +267,12 @@ namespace RegionsAndSocieties
                 treeDensity = biome?.TreeDensity ?? 0f,
                 animalDensity = biome?.animalDensity ?? 0f,
                 mineralsFraction = province?.FractionOf(ResourceKind.Minerals) ?? 0f,
-                coastal = tile.IsCoastal
+                coastal = tile.IsCoastal,
+
+                distanceToAnchor = Mathf.Clamp01(dist),
+                anchorTier = anchor.tier,
+                techLevel = (int)(def?.techLevel ?? TechLevel.Industrial),
+                permanentEnemy = def?.permanentEnemy ?? false,
             };
         }
 
@@ -199,6 +285,20 @@ namespace RegionsAndSocieties
                 case Hilliness.Mountainous: return 3;
                 default: return 0;
             }
+        }
+
+        /// <summary>A compact "Mining×2, Farming×1" tally of the archetypes placed, for the seeding report.</summary>
+        private static string ArchetypeHistogram(List<OutpostArchetype> chosen)
+        {
+            var counts = new Dictionary<OutpostArchetype, int>();
+            for (int i = 0; i < chosen.Count; i++)
+            {
+                counts.TryGetValue(chosen[i], out int c);
+                counts[chosen[i]] = c + 1;
+            }
+            var parts = new List<string>();
+            foreach (KeyValuePair<OutpostArchetype, int> kv in counts) parts.Add($"{kv.Key}×{kv.Value}");
+            return string.Join(", ", parts);
         }
     }
 }

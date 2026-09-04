@@ -37,8 +37,9 @@ namespace RegionsAndSocieties
             foreach (var province in regionManager.Provinces)
             {
                 // Draw every land region, not just owned ones (#53): the whole partition should be
-                // visible in Territories mode. Ocean is still skipped.
-                if (province.tiles.Count == 0 || province.provinceType == ProvinceType.Ocean) continue;
+                // visible in Territories mode. Ocean and impassable mountain ranges are skipped — neither
+                // is anyone's territory.
+                if (province.tiles.Count == 0 || province.provinceType == ProvinceType.Ocean || province.provinceType == ProvinceType.MountainRange) continue;
 
                 // Shade from legitimate claims (>=30%), not from the flat owningFactionIds list
                 // (which admitted anyone over 5% and cross-hatched the moment two factions cleared

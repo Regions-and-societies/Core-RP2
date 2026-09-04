@@ -19,8 +19,8 @@ namespace EducationRulesTests
             // Tribal societies are mostly illiterate; spacer societies mostly educated.
             Check("tribal has more illiterate than spacer",
                 EducationRules.BasePyramid(2)[(int)EducationTier.Illiterate] > EducationRules.BasePyramid(5)[(int)EducationTier.Illiterate]);
-            Check("spacer has more advanced than tribal",
-                EducationRules.BasePyramid(5)[(int)EducationTier.Advanced] > EducationRules.BasePyramid(2)[(int)EducationTier.Advanced]);
+            Check("spacer has more undergrad than tribal",
+                EducationRules.BasePyramid(5)[(int)EducationTier.Undergrad] > EducationRules.BasePyramid(2)[(int)EducationTier.Undergrad]);
 
             Section("the index rises with tech level");
             int tribal = EducationRules.Index(EducationRules.BasePyramid(2));
@@ -38,16 +38,16 @@ namespace EducationRulesTests
             Check("positive research skew raises the index", EducationRules.Index(EducationRules.Pyramid(4, 1f, 0f)) > flatIdx);
             Check("negative research skew lowers the index", EducationRules.Index(EducationRules.Pyramid(4, -1f, 0f)) < flatIdx);
             Check("aptitude skew raises the index", EducationRules.Index(EducationRules.Pyramid(4, 0f, 1f)) > flatIdx);
-            Check("positive skew raises the advanced share", EducationRules.Pyramid(4, 1f, 0f)[(int)EducationTier.Advanced] > flat[(int)EducationTier.Advanced]);
+            Check("positive skew raises the postgrad share", EducationRules.Pyramid(4, 1f, 0f)[(int)EducationTier.Postgrad] > flat[(int)EducationTier.Postgrad]);
 
             Check("research skew clamps: over-1 equals 1", Same(EducationRules.Pyramid(4, 5f, 0f), EducationRules.Pyramid(4, 1f, 0f)));
             Check("aptitude skew clamps: negative equals 0", Same(EducationRules.Pyramid(4, 0f, -3f), EducationRules.Pyramid(4, 0f, 0f)));
 
             Section("index edge cases");
-            Check("all illiterate -> 0", EducationRules.Index(new[] { 1f, 0f, 0f, 0f }) == 0);
-            Check("all advanced -> 100", EducationRules.Index(new[] { 0f, 0f, 0f, 1f }) == 100);
+            Check("all illiterate -> 0", EducationRules.Index(new[] { 1f, 0f, 0f, 0f, 0f }) == 0);
+            Check("all postgrad -> 100", EducationRules.Index(new[] { 0f, 0f, 0f, 0f, 1f }) == 100);
             Check("null -> 0", EducationRules.Index(null) == 0);
-            Check("empty -> 0", EducationRules.Index(new[] { 0f, 0f, 0f, 0f }) == 0);
+            Check("empty -> 0", EducationRules.Index(new[] { 0f, 0f, 0f, 0f, 0f }) == 0);
 
             Console.WriteLine();
             Console.WriteLine(failures == 0 ? "ALL EDUCATION TESTS PASSED" : failures + " EDUCATION TEST(S) FAILED");

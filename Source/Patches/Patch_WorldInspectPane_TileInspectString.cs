@@ -49,15 +49,10 @@ namespace RegionsAndSocieties.Patches
 
             var sb = new StringBuilder();
 
-            // Source population: the dwellings actually on this tile, not the smeared influence
-            // field that used to make tiles miles from any settlement report phantom dwellings (#55).
-            // Shown for every habitable tile — zero included — as a compass block of this tile
-            // (bolded) and its neighbours, so the map reads the same whether a tile is empty or not.
-            string dwellings = PopulationDensityUtility.GetDwellingsDisplay(tileId);
-            if (!string.IsNullOrEmpty(dwellings))
-            {
-                sb.AppendLine(dwellings);
-            }
+            // The per-tile dwellings compass block is HIDDEN for 0.3.0. It rendered as a text NW/N/NE grid
+            // and its underlying values are region-uniform; both are being replaced by a drawn honeycomb
+            // over location-based demographics in 0.4.0 (#34 / #33). GetDwellingsDisplay is kept for that
+            // rebuild. Territory info below stays — it is per-tile-accurate and useful now.
 
             AppendTerritoryInfo(sb, tileId);
 

@@ -73,6 +73,14 @@ namespace RimWorld.Planet
     /// implicitly to and from int in both directions, which is why the shipping code can pass a
     /// raw tile id where a PlanetTile is expected and vice versa.
     /// </summary>
+    // Minimal planet-layer double: a stub tile is always on the root surface, so surface-only guards
+    // behave as they did before multi-layer worlds existed (#24).
+    public class PlanetLayer
+    {
+        public bool IsRootSurface = true;
+        public static readonly PlanetLayer Surface = new PlanetLayer();
+    }
+
     public struct PlanetTile
     {
         public int tileId;
@@ -80,6 +88,7 @@ namespace RimWorld.Planet
 
         public static readonly PlanetTile Invalid = new PlanetTile(-1);
         public bool Valid { get { return tileId >= 0; } }
+        public PlanetLayer Layer { get { return PlanetLayer.Surface; } }
 
         public static implicit operator PlanetTile(int id) { return new PlanetTile(id); }
         public static implicit operator int(PlanetTile t) { return t.tileId; }
