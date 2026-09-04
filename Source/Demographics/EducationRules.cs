@@ -2,19 +2,35 @@ using System;
 
 namespace RegionsAndSocieties.Demographics
 {
-    /// <summary>The four education classes a region's people are bucketed into (#15). Coarse by design —
-    /// a structure, not a per-pawn schooling roll.</summary>
+    /// <summary>The five education levels a region's people are bucketed into (#15/#26), a real-world
+    /// schooling ladder from no schooling to a research elite. A structure, not a per-pawn roll — see
+    /// <see cref="EducationRules.Profiles"/> for what each level means for a pawn (skills, passion) and
+    /// for the economy (the capability it unlocks).</summary>
     public enum EducationTier
     {
         Illiterate = 0,  // no formal schooling
-        Basic = 1,       // literate, basic trades
-        Skilled = 2,     // trained specialists
-        Advanced = 3     // higher education / research
+        Primary = 1,     // basic literacy — primary school
+        Secondary = 2,   // skilled labour — secondary / vocational
+        Undergrad = 3,   // higher education — undergraduate
+        Postgrad = 4     // research elite — postgraduate
+    }
+
+    /// <summary>What one education level means for the people in it and for the economy (#26 → #28).
+    /// The skill range and passion are the guidance a pawn-generation consumer applies (#28); the
+    /// economic role is the capability that level unlocks for the regional economy (0.4.0). Plain data,
+    /// so it lives in the pure rules layer and is the single source of truth both consumers read.</summary>
+    public struct EducationProfile
+    {
+        public string label;         // the real-world schooling level
+        public int skillLow;         // typical skill points a pawn of this level brings to a specialty
+        public int skillHigh;
+        public string passion;       // how passion tends to show up
+        public string economicRole;  // the economic capability this level unlocks
     }
 
     /// <summary>
     /// The deterministic education-structure core (0.2.0, #15). A region's education distribution — how
-    /// its people split across the four tiers — is a pure function of a few signals: the dominant
+    /// its people split across the five levels — is a pure function of a few signals: the dominant
     /// faction's tech level (the dominant signal: a tribe is mostly illiterate, a spacer polity mostly
     /// skilled), an ideology research skew (transhumanist/tech memes lift it, primitivist/nature memes
     /// pull it down), and a xenotype aptitude skew where Biotech gives a caste engineered intellect.
@@ -28,10 +44,23 @@ namespace RegionsAndSocieties.Demographics
     /// </summary>
     public static class EducationRules
     {
-        public const int TierCount = 4;
+        public const int TierCount = 5;
 
         // A 0-100 attainment score per tier, used to collapse a distribution to one index for shading.
-        private static readonly float[] TierScore = { 0f, 33f, 67f, 100f };
+        private static readonly float[] TierScore = { 0f, 25f, 50f, 75f, 100f };
+
+        /// <summary>The meaning of each <see cref="EducationTier"/>, indexed by tier ordinal. First-pass
+        /// values, tunable; the skill ranges and passions feed the pawn-generation hook (#28) and the
+        /// economic roles gate what the regional economy can do (industrial growth needs Secondary+,
+        /// critical-systems resiliency needs Undergrad+, high-tech needs Postgrad).</summary>
+        public static readonly EducationProfile[] Profiles =
+        {
+            new EducationProfile { label = "Illiterate",  skillLow = 0,  skillHigh = 1,  passion = "none",                       economicRole = "Subsistence labour only — cannot operate machinery" },
+            new EducationProfile { label = "Primary",     skillLow = 1,  skillHigh = 2,  passion = "none",                       economicRole = "Manual & agricultural labour" },
+            new EducationProfile { label = "Secondary",   skillLow = 5,  skillHigh = 6,  passion = "one specialty passion",      economicRole = "Runs industrial workshops — production output" },
+            new EducationProfile { label = "Undergrad",   skillLow = 7,  skillHigh = 10, passion = "a burning passion",          economicRole = "Runs & maintains critical systems (hydroponics, power) — industrial growth & resiliency" },
+            new EducationProfile { label = "Postgrad",    skillLow = 11, skillHigh = 15, passion = "multiple burning passions",  economicRole = "R&D — unlocks high-tech production & innovation" },
+        };
 
         /// <summary>
         /// The baseline distribution for a tech level, as normalized [illiterate, basic, skilled,
@@ -41,23 +70,24 @@ namespace RegionsAndSocieties.Demographics
         /// </summary>
         public static float[] BasePyramid(int techLevel)
         {
+            // Shares over [illiterate, primary, secondary, undergrad, postgrad].
             switch (techLevel)
             {
                 case 1: // Animal
                 case 2: // Neolithic — oral culture, almost no formal schooling
-                    return new[] { 0.55f, 0.35f, 0.09f, 0.01f };
+                    return new[] { 0.50f, 0.38f, 0.10f, 0.02f, 0.00f };
                 case 3: // Medieval
-                    return new[] { 0.40f, 0.40f, 0.17f, 0.03f };
+                    return new[] { 0.35f, 0.40f, 0.20f, 0.05f, 0.00f };
                 case 4: // Industrial
-                    return new[] { 0.15f, 0.45f, 0.30f, 0.10f };
+                    return new[] { 0.10f, 0.28f, 0.35f, 0.22f, 0.05f };
                 case 5: // Spacer
-                    return new[] { 0.05f, 0.30f, 0.40f, 0.25f };
+                    return new[] { 0.03f, 0.15f, 0.32f, 0.35f, 0.15f };
                 case 6: // Ultra
-                    return new[] { 0.02f, 0.20f, 0.43f, 0.35f };
-                case 7: // Archotech — near-universally highly educated
-                    return new[] { 0.01f, 0.14f, 0.40f, 0.45f };
+                    return new[] { 0.01f, 0.08f, 0.25f, 0.40f, 0.26f };
+                case 7: // Archotech — a research civilisation
+                    return new[] { 0.00f, 0.04f, 0.16f, 0.40f, 0.40f };
                 default:
-                    return new[] { 0.15f, 0.45f, 0.30f, 0.10f };   // treat unknown as industrial
+                    return new[] { 0.10f, 0.28f, 0.35f, 0.22f, 0.05f };   // treat unknown as industrial
             }
         }
 
@@ -83,7 +113,7 @@ namespace RegionsAndSocieties.Demographics
                 w[i] = p[i] * (factor < 0f ? 0f : factor);
                 sum += w[i];
             }
-            if (sum <= 0f) return new[] { 0f, 1f, 0f, 0f };   // degenerate: call it all basic
+            if (sum <= 0f) return new[] { 0f, 1f, 0f, 0f, 0f };   // degenerate: call it all primary
             for (int i = 0; i < TierCount; i++) w[i] /= sum;
             return w;
         }

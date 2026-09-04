@@ -82,7 +82,11 @@ run_suite() {
 # the folder over 0.7.2-0.8 (debug reports, MCP tool registration, the claim hook, the holding
 # creators). Those files need a running game, are stubbed via RimWorldStubsExt, and are held to
 # their real shapes by the type-check below instead.
-INTEGRATION_PURE=$(ls $SRC/Integration/*.cs | grep -v -e RegionDebugReports -e RegionMcpTools -e TerritoryClaimHooks -e VoeOutpostCreator -e HoldingCreatorRegistry -e IHoldingCreator)
+INTEGRATION_PURE=$(ls $SRC/Integration/*.cs | grep -v -e RegionDebugReports -e RegionMcpTools -e TerritoryClaimHooks -e PopulationDynamics -e VoeOutpostCreator -e HoldingCreatorRegistry -e IHoldingCreator)
+
+# Sizing tables are pure EXCEPT the game-coupled glue (SettlementGrowthUtility reads Find / region
+# demographics), which cannot compile against the stubs — the real build covers it, like the other glue.
+SIZING_PURE=$(ls $SRC/Sizing/*.cs | grep -v -e SettlementGrowthUtility -e SettlementGrowthHooks)
 
 run_suite integration Exe \
     Tests/RimWorldStubs.cs Tests/IntegrationTests.cs \
@@ -96,7 +100,13 @@ run_suite placement Exe \
 # only the Sizing tables and the WorldObjectKind enum they read.
 run_suite outpostrules Exe \
     Tests/RimWorldStubs.cs Tests/OutpostRulesTests.cs \
-    $SRC/Integration/WorldObjectKind.cs $SRC/Sizing/*.cs
+    $SRC/Integration/WorldObjectKind.cs $SIZING_PURE
+
+# 0.3.0 settlement birthrate-growth core (#6): tech-informed rate + logistic step toward the target.
+# Pure, no game — needs only the standalone BirthrateRules.
+run_suite birthrate Exe \
+    Tests/BirthrateRulesTests.cs \
+    $SRC/Sizing/BirthrateRules.cs
 
 # 0.8 demographics core: the deterministic per-tile seed + RNG + weighted picking. Pure, no game.
 run_suite demographics Exe \
@@ -114,6 +124,18 @@ run_suite education Exe \
     Tests/EducationRulesTests.cs \
     $SRC/Demographics/EducationRules.cs
 
+# 0.3.0 residence core: population -> homes, occupancy (extended->nuclear), and land, driven by how
+# urban a place is. Pure, no game.
+run_suite residence Exe \
+    Tests/ResidenceRulesTests.cs \
+    $SRC/Demographics/ResidenceRules.cs
+
+# 0.3.0 faction-character core (#27): base/DLC archetype classification + knowledge/wealth skews, and the
+# end-to-end effect on education. Pure, no game — needs the character rules and the education core.
+run_suite factioncharacter Exe \
+    Tests/FactionCharacterRulesTests.cs \
+    $SRC/Demographics/FactionCharacterRules.cs $SRC/Demographics/EducationRules.cs
+
 # 0.2.0 socioeconomic-tiering core (#14): wealth thresholds -> SES tiers + index. Pure, no game.
 run_suite socioeconomic Exe \
     Tests/SocioeconomicRulesTests.cs \
@@ -128,6 +150,24 @@ run_suite employment Exe \
 run_suite compactness Exe \
     Tests/CompactnessRulesTests.cs \
     $SRC/Placement/CompactnessRules.cs
+
+# 0.3.0 border-first partition core (#20): boundary strength from tile-definition shifts, wall
+# thresholding, anchor sizing/spacing, undersized-merge, weakest-border merge target. Pure, no game.
+run_suite border Exe \
+    Tests/BorderRulesTests.cs \
+    $SRC/Partition/BorderRules.cs
+
+# 0.3.0 sprawl spread: a settlement's people over its own tile and the tiles its terrain-aware sprawl
+# reaches, in proportion to the sprawl weights, total conserved. Pure, no game.
+run_suite sprawl Exe \
+    Tests/SprawlRulesTests.cs \
+    $SRC/Demographics/SprawlRules.cs
+
+# 0.3.0 road-linking search core (#38): hop-bounded settlement road search. Same road as the old
+# unbounded search for any reachable pair; a local scan instead of a landmass flood for a cut-off one.
+run_suite roads Exe \
+    Tests/RoadPathRulesTests.cs \
+    $SRC/Roads/RoadPathRules.cs
 
 run_suite resource Exe \
     Tests/RimWorldStubs.cs Tests/ResourceTests.cs \
@@ -150,14 +190,16 @@ pre_typecheck_failures=$failures
 run_suite typecheck Library \
     Tests/RimWorldStubs.cs Tests/RimWorldStubsExt.cs \
     $INTEGRATION_PURE $SRC/Placement/*.cs $SRC/Economy/*.cs \
-    $SRC/RegionalDomainStatus.cs $SRC/Sizing/*.cs $SRC/Demographics/DemographicsRules.cs \
+    $SRC/RegionalDomainStatus.cs $SIZING_PURE $SRC/Demographics/DemographicsRules.cs \
     $SRC/WorldObjectPlacementUtility.cs $SRC/OutpostPlacementUtility.cs \
     $SRC/RegionalOwnershipUtility.cs \
     $SRC/GeographicProvince.cs $SRC/IRegionDemographicProvider.cs \
     $SRC/Demographics/AgeStructureRules.cs \
     $SRC/Demographics/EducationRules.cs \
+    $SRC/Demographics/FactionCharacterRules.cs \
     $SRC/Demographics/SocioeconomicRules.cs \
     $SRC/Demographics/EmploymentRules.cs \
+    $SRC/Partition/BorderRules.cs \
     $SRC/ProvinceAdjacency.cs \
     \
     $SRC/Patches/Patch_TileFinder_IsValidTileForNewSettlement.cs \

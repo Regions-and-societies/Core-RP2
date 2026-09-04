@@ -35,7 +35,7 @@ namespace RegionsAndSocieties.Patches
             {
                 Log.ErrorOnce($"[RegionsAndSocieties] PlayerFactionOverride threw: {ex}", 991824);
             }
-            return Faction.OfPlayer;
+            return Faction.OfPlayerSilentFail;
         }
 
         /// <summary>The faction of the first settlement-classified object in the tile's province, or null.</summary>

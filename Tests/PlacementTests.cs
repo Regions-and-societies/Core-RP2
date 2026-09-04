@@ -202,6 +202,35 @@ namespace PlacementTests
             Check("the contest margin is below the ownership threshold", PlacementRules.ContestMargin < PlacementRules.OwnershipThreshold);
 
             Console.WriteLine();
+            Section("bounded distance (#38): rules ask 'within N?', never 'how far?'");
+            {
+                int maxSeen = -1;
+                int calls = 0;
+                var far = World(
+                    Holding(0, WorldObjectKind.Settlement, Player),
+                    Holding(5, WorldObjectKind.Outpost, Player),
+                    Holding(400, WorldObjectKind.Settlement, Player));
+                far.DistanceWithin = (a, b, max) =>
+                {
+                    calls++;
+                    if (max > maxSeen) maxSeen = max;
+                    int d = Math.Abs(a - b);
+                    return d <= max ? d : int.MaxValue;
+                };
+                far.Distance = (a, b) => throw new InvalidOperationException("unbounded distance consulted");
+
+                Check("an outpost one tile from a settlement is still refused through the bounded search",
+                    !Evaluate(far, 1, Player, WorldObjectKind.Outpost).Allowed);
+                Check("separation is measured only up to the separation cap", maxSeen == PlacementRules.PermanentHoldingSeparation);
+
+                maxSeen = -1; calls = 0;
+                Check("an outpost clear of both neighbours and in supply range is allowed",
+                    Evaluate(far, 3, Player, WorldObjectKind.Outpost).Allowed);
+                Check("supply range is measured only up to the supply cap", maxSeen == PlacementRules.MaxSupplyDistance);
+                Check($"the far holding is never walked to: 3 separation probes + 1 supply probe, then early exit ({calls} calls)", calls == 4);
+            }
+
+            Console.WriteLine();
             Console.WriteLine(failures == 0 ? "ALL PLACEMENT TESTS PASSED" : failures + " PLACEMENT TEST(S) FAILED");
             return failures == 0 ? 0 : 1;
         }

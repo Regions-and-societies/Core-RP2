@@ -64,6 +64,14 @@ namespace RegionsAndSocieties
             int version = PopulationDensityUtility.CacheVersion;
             if (_populationVersion == version) return;
 
+            // Open water and impassable mountains carry no population; skip the per-tile sum so the huge
+            // ocean province (now a real, ~50k-tile province) and the impassable ranges are not walked
+            // every cache version (#20).
+            if (provinceType == ProvinceType.Ocean || provinceType == ProvinceType.MountainRange)
+            {
+                _currentPopulation = 0; _totalDwellings = 0; _populationVersion = version; return;
+            }
+
             int total = 0;
             if (tiles != null)
             {
@@ -257,6 +265,9 @@ namespace RegionsAndSocieties
         {
             initializedEconomics = true;
             if (tiles == null || tiles.Count == 0 || Find.WorldGrid == null) return;
+            // Open water and impassable mountains have no economy; skip so neither is walked (and the
+            // ocean doesn't report a nonsense "richest province on the planet" from ~50k tiles × 500) (#20).
+            if (provinceType == ProvinceType.Ocean || provinceType == ProvinceType.MountainRange) return;
 
             float totalPlantDensity = 0f;
             float totalForageability = 0f;

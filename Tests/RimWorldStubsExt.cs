@@ -160,6 +160,8 @@ namespace RimWorld.Planet
         public Tile this[PlanetTile tile] { get { return new Tile(); } }
 
         public int TraversalDistanceBetween(PlanetTile a, PlanetTile b) { return 0; }
+        public int TraversalDistanceBetween(PlanetTile a, PlanetTile b, bool passImpassable, int maxDist) { return 0; }
+        public float ApproxDistanceInTiles(PlanetTile a, PlanetTile b) { return 0f; }
         public void GetTileNeighbors(PlanetTile tile, List<PlanetTile> outList) { outList.Clear(); }
         public void OverlayRoad(PlanetTile fromTile, PlanetTile toTile, Verse.RoadDef roadDef) { }
     }

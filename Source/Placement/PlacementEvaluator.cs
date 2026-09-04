@@ -100,7 +100,8 @@ namespace RegionsAndSocieties.Placement
                 int required = PlacementRules.MinSeparation(kind, h.kind);
                 if (required <= 0) continue;
 
-                if (world.DistanceBetween(tile, h.tile) < required)
+                // Bounded: only "closer than required?" is asked, so the search may stop there (#38).
+                if (world.DistanceBetween(tile, h.tile, required) < required)
                 {
                     return PlacementDecision.Refuse(
                         PlacementRejection.TooCloseToHolding,
@@ -154,7 +155,12 @@ namespace RegionsAndSocieties.Placement
 
             int nearest = int.MaxValue;
             bool hasAnchor = false;
+            int range = PlacementRules.MaxSupplyDistance;
 
+            // The rule only asks whether SOME anchor is within range, so each distance is bounded at
+            // the range and the first anchor found inside it settles the question (#38): the outpost
+            // seeder probes thousands of tiles, each of which used to measure every holding on the
+            // planet with an unbounded flood search.
             List<PlacementHolding> holdings = world.Holdings;
             if (holdings != null)
             {
@@ -165,20 +171,22 @@ namespace RegionsAndSocieties.Placement
                     if (!h.kind.IsPermanentHolding()) continue;
 
                     hasAnchor = true;
-                    int d = world.DistanceBetween(tile, h.tile);
+                    int d = world.DistanceBetween(tile, h.tile, range);
                     if (d < nearest) nearest = d;
+                    if (nearest <= range) return null;
                 }
             }
 
             foreach (int borderTile in world.BorderTilesFor(faction))
             {
                 hasAnchor = true;
-                int d = world.DistanceBetween(tile, borderTile);
+                int d = world.DistanceBetween(tile, borderTile, range);
                 if (d < nearest) nearest = d;
+                if (nearest <= range) return null;
             }
 
             if (!hasAnchor) return null;
-            if (nearest <= PlacementRules.MaxSupplyDistance) return null;
+            if (nearest <= range) return null;
 
             return PlacementDecision.Refuse(
                 PlacementRejection.OutOfSupplyRange,

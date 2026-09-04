@@ -36,6 +36,18 @@ namespace RegionsAndSocieties
         public override Vector3 Position => Vector3.zero;
         protected override Quaternion Rotation => Quaternion.identity;
 
+        // Pin this global overlay to the root surface layer so a null planetLayer never NREs code that
+        // dereferences it (e.g. Layered Atmosphere and Orbit's WorldDrawLayer.Visible postfix). See the
+        // matching note in WorldLayer_RegionBorders.
+        public override bool Visible
+        {
+            get
+            {
+                if (planetLayer == null && Find.WorldGrid != null) planetLayer = Find.WorldGrid.Surface;
+                return base.Visible;
+            }
+        }
+
         // Capitals shift when settlements are added/removed (which also re-derives protection ranks);
         // the density cache version bumps on exactly those events, so it is the right regen signal.
         private static int CurrentVersion => PopulationDensityUtility.CacheVersion;

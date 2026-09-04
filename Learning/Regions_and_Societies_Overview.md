@@ -8,7 +8,7 @@ Regions and Societies is the continuation of **Regions and Territories** (which 
 
 ## Geographic provinces
 
-At world generation the planet is divided into contiguous geographic provinces, built from terrain rather than drawn arbitrarily — biome, elevation, rivers and coastline all shape where one region ends and the next begins. A generated world typically produces somewhere between 250 and 400 provinces, varying with planet size and seed.
+At world generation the planet is divided into contiguous geographic provinces, built from terrain rather than drawn arbitrarily — biome, elevation, rivers and coastline all shape where one region ends and the next begins, and every province is a single connected landmass. A generated world typically produces somewhere between 250 and 400 provinces, varying with planet size and seed. The partitioning method is selectable in mod settings and can be extended by other mods (see the [Developer's Guide](Developers_Guide#region-partition-algorithms-030)); each world records the algorithm and worldgen version it was generated with, so an existing save always keeps its own map even if the setting or the mod changes.
 
 A province is the unit everything else in this mod reasons about. It holds its tiles, the world objects standing on them, its resource pools, and the ownership picture described below.
 

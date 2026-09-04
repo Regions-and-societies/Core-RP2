@@ -6,7 +6,7 @@ What Regions and Societies does in your game, mechanic by mechanic. For the API 
 
 ## Geographic provinces
 
-At world generation the planet is divided into contiguous provinces, shaped by terrain — biome, elevation, rivers and coastline — rather than drawn arbitrarily. A typical world produces 250–400 of them, varying with planet size and seed. A province starts life as "Region <id>" and is renamed to "<settlement> Region" once a settlement stands in it.
+At world generation the planet is divided into contiguous provinces, shaped by terrain — biome, elevation, rivers and coastline — rather than drawn arbitrarily, each a single connected landmass. A typical world produces 250–400 of them, varying with planet size and seed. A province starts life as "Region <id>" and is renamed to "<settlement> Region" once a settlement stands in it. The way the world is cut is selectable in the mod settings (and the region panel shows the worldgen version each world was made with); switching it only affects new worlds.
 
 The province is the unit everything else reasons about: its tiles, the world objects standing on them, its population, and who holds it. See the [Overview](Regions_and_Societies_Overview).
 
@@ -31,7 +31,7 @@ On top of the modes, an owner-coloured **region-border overlay** can be drawn ov
 
 ## Region comparison panels
 
-Modifier-click a region on the world map (Ctrl+click by default; switchable to Shift+click in the mod settings) to open a draggable readout of its population, ownership and details. Open several at once to compare — the limit is configurable, and the oldest panel closes first when you exceed it.
+Modifier-click a region on the world map (Ctrl+click by default; switchable to Shift+click in the mod settings) to open a draggable, three-tab readout — **Region** (a shape mini-map, ownership, named world features, resource pools and wildlife), **Population** (the seven demographic axes as bars and pies), and **Economy** (manufactured goods, housing and any active crises). Open several at once to compare — the limit is configurable, and the oldest panel closes first when you exceed it.
 
 ## Regional demographics (0.2.0)
 
@@ -55,9 +55,13 @@ After generation the same evaluator governs every new placement — yours and th
 
 Settlements are classified into tiers — village, town, city, major city, metropolis — from population and, where a companion patch supplies it, the owning mod's own upgrade level. The tier drives production scaling, territory footprint and outpost allowance, and each faction's capital carries a star marker. Toggleable in the mod settings.
 
-## Outpost seeding
+## Outpost seeding (deferred to 0.4.0)
 
-At world generation, outposts can be seeded around settlements up to each territory's tier-based allowance — but core cannot build another mod's outposts by itself. Seeding takes effect when a compatibility patch that contributes an outpost creator is installed (the Vanilla Outposts Expanded patch). Without one, a generated world carries only settlements, which is correct rather than a fault.
+Seeding outposts around settlements at world generation, up to each territory's tier-based allowance, is built but switched out of world generation for 0.3.0: its placement checks did not scale to the finer 0.3.0 partition on large worlds. It returns in 0.4.0. Core cannot build another mod's outposts by itself in any case — seeding will take effect only with a compatibility patch that contributes an outpost creator (the Vanilla Outposts Expanded patch). A generated world carrying only settlements is correct, not a fault.
+
+## Settlement growth (0.3.0)
+
+NPC settlements grow over time from in-game birthrates, fed by the region's real make-up (fertile share, wealth), converging on a target for their tier and never exceeding the tier maximum. Like the caps below, this is model-only — it shapes the world's numbers, never your colony roster.
 
 ## Population caps
 
@@ -75,12 +79,13 @@ A world generated with the mod installed gets everything, including placement ru
 
 In Options → Mod settings → Regions and Societies:
 
+- **World partition algorithm** — how the globe is cut into regions (contain-then-subdivide, or the legacy anchor-Voronoi look; other mods can add their own). Applies to newly generated worlds only — an existing save keeps the algorithm it was made with.
 - **Claimed land area** — the worldgen settlement-density knob (applies to newly generated worlds).
 - **Territory compactness (squaring)** — how strongly territories prefer squaring off over spidering (0% = legacy behaviour).
 - **Ownership calculation breakdown** — show the derivation readout in the region panel without Dev Mode.
 - **Region panel modifier** — Ctrl+click or Shift+click, and how many comparison panels may be open at once.
 - **World-object integration (master)** — off means only vanilla objects are governed.
-- **Settlement tiers & capitals**, **Seed outposts at world generation**, **Population caps** — per-mechanic switches, with a cap multiplier slider.
+- **Settlement tiers & capitals**, **Seed outposts at world generation** (inert in 0.3.0 — seeding returns in 0.4.0), **Population caps** — per-mechanic switches, with a cap multiplier slider.
 - **Demographic pressure tuning** — reach and falloff sliders shaping how far a settlement's make-up carries, plus the **war/draft skew recovery** slider (how many in-game years a region's sex ratio takes to recover from combat losses; default 15).
 - **Draw region borders on the world map** — the border overlay toggle.
 

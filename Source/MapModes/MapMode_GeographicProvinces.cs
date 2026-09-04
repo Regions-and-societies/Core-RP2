@@ -136,7 +136,7 @@ namespace RegionsAndSocieties
             return GetProvinceTooltipShort(province);
         }
 
-        public static string GetProvinceTooltip(GeographicProvince province, int tile)
+        public static string GetProvinceTooltip(GeographicProvince province, int tile, bool includeDemographics = true)
         {
             if (province == null) return string.Empty;
 
@@ -202,26 +202,32 @@ namespace RegionsAndSocieties
             // Demographic reads (#10 age, #11 sex, #12 xenotypes, #13 ideology, #14 wealth, #15
             // education): deterministic, each self-labeled so they need no extra header. Sex shows any
             // active draft/war skew inline; ideology shows belief similarity to neighbours.
-            string ageSummary = Demographics.RegionDemographicsUtility.AgeStructureSummary(province);
-            string sexSummary = Demographics.RegionDemographicsUtility.SexRatioSummary(province);
-            string xenoSummary = Demographics.RegionDemographicsUtility.XenotypeSummary(province);
-            string ideoSummary = Demographics.RegionDemographicsUtility.IdeologySummary(province);
-            string eduSummary = Demographics.RegionDemographicsUtility.EducationSummary(province);
-            string sesSummary = Demographics.RegionDemographicsUtility.SocioeconomicSummary(province);
-            string employSummary = Demographics.RegionDemographicsUtility.EmploymentSummary(province);
-            if (!string.IsNullOrEmpty(ageSummary) || !string.IsNullOrEmpty(sexSummary)
-                || !string.IsNullOrEmpty(xenoSummary) || !string.IsNullOrEmpty(ideoSummary)
-                || !string.IsNullOrEmpty(eduSummary) || !string.IsNullOrEmpty(sesSummary)
-                || !string.IsNullOrEmpty(employSummary))
+            // The demographic axes render as visual charts in the region panel (#26, DemographicsPanel).
+            // The text summaries are kept for callers that want a plain-text dump (the hover path, debug
+            // reports), and skipped when the visual panel is drawing them so nothing is shown twice.
+            if (includeDemographics)
             {
-                sb.AppendLine();
-                if (!string.IsNullOrEmpty(ageSummary)) sb.AppendLine(ageSummary);
-                if (!string.IsNullOrEmpty(sexSummary)) sb.AppendLine(sexSummary);
-                if (!string.IsNullOrEmpty(xenoSummary)) sb.AppendLine(xenoSummary);
-                if (!string.IsNullOrEmpty(ideoSummary)) sb.AppendLine(ideoSummary);
-                if (!string.IsNullOrEmpty(eduSummary)) sb.AppendLine(eduSummary);
-                if (!string.IsNullOrEmpty(sesSummary)) sb.AppendLine(sesSummary);
-                if (!string.IsNullOrEmpty(employSummary)) sb.AppendLine(employSummary);
+                string ageSummary = Demographics.RegionDemographicsUtility.AgeStructureSummary(province);
+                string sexSummary = Demographics.RegionDemographicsUtility.SexRatioSummary(province);
+                string xenoSummary = Demographics.RegionDemographicsUtility.XenotypeSummary(province);
+                string ideoSummary = Demographics.RegionDemographicsUtility.IdeologySummary(province);
+                string eduSummary = Demographics.RegionDemographicsUtility.EducationSummary(province);
+                string sesSummary = Demographics.RegionDemographicsUtility.SocioeconomicSummary(province);
+                string employSummary = Demographics.RegionDemographicsUtility.EmploymentSummary(province);
+                if (!string.IsNullOrEmpty(ageSummary) || !string.IsNullOrEmpty(sexSummary)
+                    || !string.IsNullOrEmpty(xenoSummary) || !string.IsNullOrEmpty(ideoSummary)
+                    || !string.IsNullOrEmpty(eduSummary) || !string.IsNullOrEmpty(sesSummary)
+                    || !string.IsNullOrEmpty(employSummary))
+                {
+                    sb.AppendLine();
+                    if (!string.IsNullOrEmpty(ageSummary)) sb.AppendLine(ageSummary);
+                    if (!string.IsNullOrEmpty(sexSummary)) sb.AppendLine(sexSummary);
+                    if (!string.IsNullOrEmpty(xenoSummary)) sb.AppendLine(xenoSummary);
+                    if (!string.IsNullOrEmpty(ideoSummary)) sb.AppendLine(ideoSummary);
+                    if (!string.IsNullOrEmpty(eduSummary)) sb.AppendLine(eduSummary);
+                    if (!string.IsNullOrEmpty(sesSummary)) sb.AppendLine(sesSummary);
+                    if (!string.IsNullOrEmpty(employSummary)) sb.AppendLine(employSummary);
+                }
             }
 
             if (province.activeCrises.Any())

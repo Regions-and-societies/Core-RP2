@@ -95,6 +95,9 @@ namespace RegionsAndSocieties
             Dictionary<GeographicProvince, float> provinceScores = new Dictionary<GeographicProvince, float>();
             foreach (var p in allProvinces)
             {
+                // Land only — factions never settle water, and scanning the ~50k-tile ocean province
+                // per faction just to discard it is pure worldgen cost (#20).
+                if (p.provinceType != ProvinceType.Land) continue;
                 if (p.tiles == null || p.tiles.Count < 20) continue;
 
                 var validTiles = p.tiles.Where(t => tileScores.ContainsKey(t)).ToList();

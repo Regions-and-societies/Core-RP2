@@ -65,6 +65,18 @@ namespace RegionsAndSocieties
             return bands[BandForShare(share)];
         }
 
+        protected override void EnsureMaterials()
+        {
+            // Unity materials MUST be created on the main thread; MapModeFramework builds its sub-meshes
+            // (and calls GetMaterial → MaterialForRegion) on a worker thread. DoPreRegenerate runs on the
+            // main thread, so pre-build every xenotype's material set here instead of lazily off-thread.
+            if (!ModLister.BiotechInstalled) return;
+            List<XenotypeDef> all = DefDatabase<XenotypeDef>.AllDefsListForReading;
+            for (int i = 0; i < all.Count; i++)
+                if (all[i] != null && !xenotypeMats.ContainsKey(all[i]))
+                    MaterialFor(all[i], 1f);   // builds + caches the band set on the main thread
+        }
+
         protected override Material MaterialForRegion(RegionDemographics demo)
         {
             if (!demo.biotechActive) return null;   // no xenotypes to show; tooltip states it

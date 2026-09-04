@@ -304,6 +304,62 @@ HoldingCreatorRegistry.Register(new FrontierOutpostCreator());
 
 ---
 
+## Region partition algorithms (0.3.0)
+
+How the globe is cut into land provinces is an extension point. Namespace `RegionsAndSocieties.Partition`. Core ships two — `contain_subdivide` (the default) and `anchor_voronoi` (the 0.2.x look); a mod contributes its own and it appears in the **World partition algorithm** dropdown in Regions and Societies' settings.
+
+The chosen algorithm's `AlgorithmId` is stamped onto every world it generates, so the setting only affects **new** worlds — an existing save keeps the algorithm it was generated with, and a regenerate reproduces it. If a world's stamped algorithm is not registered (the mod that added it was removed), it falls back to the default.
+
+### IRegionPartitioner
+
+```csharp
+public interface IRegionPartitioner
+{
+    string AlgorithmId { get; }   // stable id, persisted in saves + the settings value — never change once shipped
+    string Label { get; }         // dropdown name
+    string Description { get; }    // dropdown tooltip
+    int Order { get; }            // dropdown sort; Core's default is 0
+
+    // Water/impassable tiles are already claimed in tileToProvinceId (entries >= 0) and are hard walls;
+    // return one tile list per land province. Must be deterministic from the world (regenerate fidelity).
+    List<List<int>> Partition(int[] tileToProvinceId, int minRegionTiles, int maxRegionTiles);
+}
+```
+
+### RegionPartitionerRegistry
+
+| Member | Signature | Notes |
+|---|---|---|
+| `Register` | `void Register(IRegionPartitioner p)` | Call from your `Mod` constructor. Duplicate `AlgorithmId` is dropped with a warning. |
+| `Get` | `IRegionPartitioner Get(string algorithmId)` | The match, or the default if the id is unknown (logged). |
+| `All` / `Default` | `IReadOnlyList<IRegionPartitioner> All`, `IRegionPartitioner Default` | The dropdown reads `All`; `Default` is `contain_subdivide`. |
+| `DefaultAlgorithmId` / `LegacyAlgorithmId` | `const string` | `"contain_subdivide"` / `"anchor_voronoi"`. |
+
+**Worked example:**
+
+```csharp
+public class HexGridPartitioner : IRegionPartitioner
+{
+    public string AlgorithmId => "hexgrid";
+    public string Label => "Uniform hex grid";
+    public string Description => "Ignores terrain; cuts the globe into equal hex cells.";
+    public int Order => 20;
+
+    public List<List<int>> Partition(int[] tileToProvinceId, int minRegionTiles, int maxRegionTiles)
+    {
+        // ... flood the unclaimed land (tileToProvinceId[t] < 0) into groups, never crossing a claimed
+        //     (>= 0) tile, and return one List<int> per province ...
+    }
+}
+
+// in your Mod constructor:
+RegionPartitionerRegistry.Register(new HexGridPartitioner());
+```
+
+Downstream cleanup (contiguity enforcement, tiny-region merging, ownership) runs on whatever groups you return, so a partitioner only has to produce reasonable land groups — it does not have to be perfect.
+
+---
+
 ## Demographic providers
 
 Namespace `RegionsAndSocieties` (root). A provider contributes the **demographics component** of a province's ownership score — "what share of this region's people match this faction".
@@ -535,7 +591,7 @@ Two public static settings classes. Consumers should read the **composed gates**
 | `EconomyGovernanceActive` | Production modifiers apply. |
 | `MilitaryGovernanceActive` | Adjacency/supply restrictions on military actions apply. |
 | `SettlementTiersActive` | Village→metropolis tiering runs. |
-| `OutpostSeedingActive` | Worldgen outpost seeding runs (needs a creator from a patch). |
+| `OutpostSeedingActive` | Outpost seeding runs (needs a creator from a patch). Worldgen seeding is deferred to 0.4.0, so the switch is inert in 0.3.0. |
 | `PopulationCapsActive` | The per-tier population-cap model runs. |
 
 Raw fields (`masterEnabled`, `placementGovernance`, ..., `populationCapMultiplier`, `demographicReach`, `demographicFalloff`, `demographicFalloffModel`, `demographicGenerationYears` (how many in-game years a generational sex skew takes to decay; default 15), `logUnknownWorldObjects`) are public and persisted, but flip them only from a settings UI acting for the player.

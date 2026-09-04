@@ -79,6 +79,22 @@ namespace RegionsAndSocieties
         public override Vector3 Position => Vector3.zero;
         protected override Quaternion Rotation => Quaternion.identity;
 
+        // A global draw layer carries a null planetLayer by design, which NREs anything that dereferences
+        // it — notably Layered Atmosphere and Orbit's WorldDrawLayer.Visible/Raycastable postfixes, which
+        // read planetLayer.Def and, unguarded, take down the whole world-render loop (a black world). Pin
+        // this global overlay to the root surface layer the first time visibility is queried, so those
+        // reads are null-safe. The mesh is absolute-world-space and the Position/Rotation overrides above
+        // keep it pinned regardless, so the association only decides which layer view it shows on — the
+        // surface, which is where region borders belong.
+        public override bool Visible
+        {
+            get
+            {
+                if (planetLayer == null && Find.WorldGrid != null) planetLayer = Find.WorldGrid.Surface;
+                return base.Visible;
+            }
+        }
+
         private static bool loggedRenderError;
 
         public override void Render()
