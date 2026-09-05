@@ -1792,7 +1792,7 @@ namespace RegionsAndSocieties
                 var b = t.PrimaryBiome;
                 if (b != null)
                 {
-                    total += b.plantDensity + b.forageability + b.TreeDensity;
+                    total += b.plantDensity + b.forageability + BiomeSafe.TreeDensity(b);
                 }
                 if (t.hilliness == Hilliness.SmallHills) total += 0.5f;
                 else if (t.hilliness == Hilliness.LargeHills) total += 1.0f;
@@ -2103,6 +2103,22 @@ namespace RegionsAndSocieties
         /// <summary>Force the next <see cref="RecalculateProvinceOwners"/> to recompute rather than
         /// reuse the cache — for inputs the epoch/count gate does not observe (e.g. a demographic
         /// provider registering, or a settlement changing faction without an add/remove).</summary>
+        /// <summary>
+        /// Discard the partition (including a half-built one left by a throw during world generation) so
+        /// the lazy <see cref="Provinces"/> getter rebuilds it from scratch on the next read.
+        /// </summary>
+        public void ResetProvinces()
+        {
+            provinces.Clear();
+            _provinceById = null;
+            if (tileToProvinceId != null)
+            {
+                for (int i = 0; i < tileToProvinceId.Length; i++) tileToProvinceId[i] = -1;
+            }
+            ProvinceAdjacency.ClearCache();
+            MarkOwnersDirty();
+        }
+
         public void MarkOwnersDirty()
         {
             ownersComputedVersion = -1;

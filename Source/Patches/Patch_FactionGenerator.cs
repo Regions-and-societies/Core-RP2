@@ -12,8 +12,37 @@ namespace RegionsAndSocieties.Patches
     [HarmonyPatch(typeof(FactionGenerator), "GenerateFactionsIntoWorldLayer")]
     public static class Patch_FactionGenerator_GenerateFactionsIntoWorld
     {
+        // Counts factions added to the FactionManager by the current run, so a throw can tell whether
+        // vanilla may still generate factions (none added) or only settlements are missing (some added).
+        private static int factionsAddedThisRun;
+
         [HarmonyPrefix]
         public static bool Prefix(PlanetLayer layer, List<FactionDef> factions)
+        {
+            factionsAddedThisRun = 0;
+            try
+            {
+                return GenerateAndPlace(layer, factions);
+            }
+            catch (Exception ex)
+            {
+                // Vanilla wraps each WorldGenStep in try/catch and only LOGS a throw — the step's work is
+                // lost and generation carries on. Because this prefix replaces the whole faction step, a
+                // throw anywhere in it used to yield a world with no factions at all (0.3.0: a malformed
+                // BiomeDef's plant cache threw inside the region partition). Degrade instead of dying.
+                if (factionsAddedThisRun == 0)
+                {
+                    Log.Error("[RegionsAndSocieties] Custom faction generation threw before any faction was created; falling back to vanilla faction generation for this world. R&S regions are rebuilt lazily when first needed.\n" + ex);
+                    (Find.World ?? Current.CreatingWorld)?.GetComponent<SynapseRegionManager>()?.ResetProvinces();
+                    return true;
+                }
+                Log.Error($"[RegionsAndSocieties] Custom settlement placement threw after {factionsAddedThisRun} faction(s) were created; giving every faction without a base one settlement the vanilla way so the world stays playable.\n" + ex);
+                PlaceFallbackSettlements(layer);
+                return false;
+            }
+        }
+
+        private static bool GenerateAndPlace(PlanetLayer layer, List<FactionDef> factions)
         {
             if (layer == null || layer.Def == null || layer.Def.defName != "Surface")
             {
@@ -131,6 +160,7 @@ namespace RegionsAndSocieties.Patches
                     if (faction != null)
                     {
                         factionManager.Add(faction);
+                        factionsAddedThisRun++;
                         generatedFactions.Add(faction);
                     }
                 }
@@ -143,6 +173,7 @@ namespace RegionsAndSocieties.Patches
                         if (faction != null)
                         {
                             factionManager.Add(faction);
+                            factionsAddedThisRun++;
                         }
                     }
                 }
@@ -338,7 +369,7 @@ namespace RegionsAndSocieties.Patches
 
                 float nutritionVal = tileData.PrimaryBiome != null ? tileData.PrimaryBiome.plantDensity : 0.5f;
                 float forageVal = tileData.PrimaryBiome != null ? tileData.PrimaryBiome.forageability : 0.5f;
-                float biomassVal = tileData.PrimaryBiome != null ? tileData.PrimaryBiome.TreeDensity : 0.5f;
+                float biomassVal = tileData.PrimaryBiome != null ? BiomeSafe.TreeDensity(tileData.PrimaryBiome) : 0.5f;
                 float grazingVal = (tileData.hilliness == Hilliness.Flat) ? nutritionVal * 2f : nutritionVal;
                 float hospVal = nutritionVal * 2f + forageVal;
 
@@ -633,6 +664,42 @@ namespace RegionsAndSocieties.Patches
 
             Log.Message("[RegionsAndSocieties] Custom Faction Generation and Placement completed successfully.");
             return false;
+        }
+
+        /// <summary>
+        /// Last-resort placement when the R&amp;S placement solver throws after the factions already
+        /// exist: vanilla's own generator cannot be re-run (it would create the factions again), so give
+        /// every visible NPC faction that ended up without a base a single vanilla-style settlement.
+        /// </summary>
+        private static void PlaceFallbackSettlements(PlanetLayer layer)
+        {
+            World world = Find.World ?? Current.CreatingWorld;
+            FactionManager factionManager = world?.factionManager;
+            if (factionManager == null || world.worldObjects == null || layer?.Def == null) return;
+
+            var canExistOnLayerMethod = typeof(FactionGenerator).GetMethod("CanExistOnLayer", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            WorldObjectDef settlementDef = layer.Def.SettlementWorldObjectDef ?? WorldObjectDefOf.Settlement;
+            int placed = 0;
+            foreach (Faction faction in factionManager.AllFactionsListForReading)
+            {
+                if (faction == null || faction.IsPlayer || faction.Hidden || faction.temporary) continue;
+                if (canExistOnLayerMethod != null && !(bool)canExistOnLayerMethod.Invoke(null, new object[] { layer, faction.def })) continue;
+                if (world.worldObjects.Settlements.Any(s => s.Faction == faction)) continue;
+                try
+                {
+                    Settlement settlement = (Settlement)WorldObjectMaker.MakeWorldObject(settlementDef);
+                    settlement.SetFaction(faction);
+                    settlement.Tile = TileFinder.RandomSettlementTileFor(layer, faction);
+                    settlement.Name = SettlementNameGenerator.GenerateSettlementName(settlement);
+                    world.worldObjects.Add(settlement);
+                    placed++;
+                }
+                catch (Exception e)
+                {
+                    Log.Warning($"[RegionsAndSocieties] Fallback placement for '{faction.Name}' failed: {e.Message}");
+                }
+            }
+            Log.Message($"[RegionsAndSocieties] Fallback placement added {placed} settlement(s).");
         }
 
         /// <summary>

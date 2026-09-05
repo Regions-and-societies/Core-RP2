@@ -264,7 +264,7 @@ namespace RegionsAndSocieties
             {
                 hilliness = HillinessLevel(tile.hilliness),
                 plantDensity = biome?.plantDensity ?? 0f,
-                treeDensity = biome?.TreeDensity ?? 0f,
+                treeDensity = BiomeSafe.TreeDensity(biome),
                 animalDensity = biome?.animalDensity ?? 0f,
                 mineralsFraction = province?.FractionOf(ResourceKind.Minerals) ?? 0f,
                 coastal = tile.IsCoastal,

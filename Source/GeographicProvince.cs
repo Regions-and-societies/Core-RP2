@@ -282,7 +282,7 @@ namespace RegionsAndSocieties
                 {
                     totalPlantDensity += b.plantDensity;
                     totalForageability += b.forageability;
-                    totalTreeDensity += b.TreeDensity;
+                    totalTreeDensity += BiomeSafe.TreeDensity(b);
                 }
                 float hillMult = 0.5f;
                 if (t.hilliness == Hilliness.SmallHills) hillMult = 1.0f;
