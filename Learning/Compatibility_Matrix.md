@@ -66,6 +66,7 @@ No ordering constraint has been observed against Empire, VOE, VEF, World Dominat
 
 - **Best on a new colony.** An existing save is adopted in compatibility mode; see [Save Compatibility](Save_Compatibility).
 - **Broader modlist coverage is not yet characterised.** The mods above are what has been run and verified together. Other world mods are not known to conflict — they are simply untested, which is a different statement.
+- **Duplicated biome plants from other mods are repaired, not fatal.** Since 0.3.1, a biome that lists the same wild plant or animal twice (ReGrowth 2 and Fertile Planet both add pincushion cactus and drago trees to Extreme Desert, for example) is merged at startup with a logged warning naming the biome and the def. Before 0.3.1 that duplicate made world generation produce a world with no factions.
 
 ---
 

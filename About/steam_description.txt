@@ -1,5 +1,5 @@
 [b]Discord Community:[/b] [url=https://discord.gg/eVBebZ2N9s]https://discord.gg/eVBebZ2N9s[/url]
-[b]Version:[/b] v0.3.0 (Target: RimWorld 1.6)
+[b]Version:[/b] v0.3.1 (Target: RimWorld 1.6)
 
 [h2]Compatibility Patches[/h2]
 Install the matching patch and that mod's factions, settlements and events stay in sync with each region's demographics, ownership and population:
@@ -44,6 +44,11 @@ Most of the work happens at world generation: region borders are drawn and facti
 [/list]
 
 ---
+
+[h2]Changelog (v0.3.1) - Worldgen hotfix[/h2]
+[list]
+[*] [b]Fixed:[/b] a new world could generate with [b]no factions and no settlements[/b]. Another mod's patch listing a wild plant twice in a biome (seen with ReGrowth 2 and Fertile Planet both adding pincushion cactus and drago trees to Extreme Desert) makes the game's plant cache throw, and the 0.3.0 partition reads it during world generation, so the whole faction step was discarded. Duplicated biome plants and animals are now merged at startup (logged, naming the biome and plant), every world-generation read of biome tree density is guarded, and if faction generation ever throws again it falls back to vanilla generation instead of an empty world.
+[/list]
 
 [h2]Changelog (v0.3.0) - Living Population Model[/h2]
 [list]
