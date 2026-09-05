@@ -2,6 +2,10 @@
 
 Full version history. The mod page and Workshop description show only the latest release; earlier versions are recorded here. Versions before 0.1.0 shipped under the former identity, **RimSynapse - Regions and Territories**, and are kept below as the predecessor's history.
 
+## v0.3.1 - Worldgen hotfix
+
+- **Fixed: a new world could generate with no factions and no settlements.** When another mod's patch lists a wild plant twice in a biome (seen with ReGrowth 2 and Fertile Planet both adding pincushion cactus and drago trees to Extreme Desert), RimWorld's plant-commonality cache throws on the duplicate the first time the biome is read. The 0.3.0 partition reads biome tree density for every land tile during world generation, so the throw landed inside the faction world-gen step and vanilla discarded the whole step. Three layers now cover it: duplicated biome plant and animal records are merged at startup and logged naming the biome and the def (which also fixes that biome's own map-generation error); every world-generation read of tree density goes through a guarded accessor; and the faction step itself falls back to vanilla faction generation (or, if factions already exist, gives each base-less faction one settlement) instead of leaving an empty world. Not a load-order issue.
+
 ## v0.3.0 - Living Population Model
 
 The world grows a living population and the map is redrawn from the ground up.

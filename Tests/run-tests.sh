@@ -193,7 +193,7 @@ run_suite typecheck Library \
     $SRC/RegionalDomainStatus.cs $SIZING_PURE $SRC/Demographics/DemographicsRules.cs \
     $SRC/WorldObjectPlacementUtility.cs $SRC/OutpostPlacementUtility.cs \
     $SRC/RegionalOwnershipUtility.cs \
-    $SRC/GeographicProvince.cs $SRC/IRegionDemographicProvider.cs \
+    $SRC/GeographicProvince.cs $SRC/BiomeSafe.cs $SRC/IRegionDemographicProvider.cs \
     $SRC/Demographics/AgeStructureRules.cs \
     $SRC/Demographics/EducationRules.cs \
     $SRC/Demographics/FactionCharacterRules.cs \
