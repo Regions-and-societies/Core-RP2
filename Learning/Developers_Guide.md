@@ -587,7 +587,7 @@ Two public static settings classes. Consumers should read the **composed gates**
 
 | Gate property | Meaning when true |
 |---|---|
-| `PlacementGovernanceActive` | Foreign placement is gated on ownership and supply range. |
+| `PlacementGovernanceActive` | Foreign placement is gated on ownership and supply range. Governs the checks a player reads — the settle button, the starting-site page, the inspect pane — and every `WorldObjectPlacementUtility.Evaluate` / `CanPlaceAt` call you make yourself. Since 0.3.2 the Harmony postfix on `TileFinder.IsValidTileForNewSettlement` returns early when the caller passes no `StringBuilder reason`, so tile *searches* (vanilla `TryFindNewSiteTile`, quest nodes, your own site finders using that method as a validator) are never governed or slowed by it. If your mod wants R&S territory to constrain a search, call `WorldObjectPlacementUtility.CanPlaceAt` in your validator explicitly. |
 | `EconomyGovernanceActive` | Production modifiers apply. |
 | `MilitaryGovernanceActive` | Adjacency/supply restrictions on military actions apply. |
 | `SettlementTiersActive` | Village→metropolis tiering runs. |

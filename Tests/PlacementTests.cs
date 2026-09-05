@@ -230,6 +230,71 @@ namespace PlacementTests
                 Check($"the far holding is never walked to: 3 separation probes + 1 supply probe, then early exit ({calls} calls)", calls == 4);
             }
 
+            Section("inspect-pane placement hints are debounced, deferred and remembered (#44, #45)");
+            {
+                string hint;
+                var cache = new PlacementHintCache(capacity: 8, dwellSeconds: 0.35f, refreshIntervalTicks: 120);
+
+                Check("a freshly selected tile is not evaluated on its first frame",
+                    cache.Lookup(7, 10, 1000, 0.00f, false, out hint) == HintLookup.Wait);
+                Check("...nor while it has dwelt less than the threshold",
+                    cache.Lookup(7, 10, 1000, 0.20f, false, out hint) == HintLookup.Wait);
+                Check("...but it is once it has stayed selected long enough",
+                    cache.Lookup(7, 10, 1000, 0.40f, false, out hint) == HintLookup.Evaluate);
+
+                cache.Store(7, 10, 1000, "Too close to a settlement");
+                Check("the stored hint answers instantly on the next frame",
+                    cache.Lookup(7, 10, 1000, 0.41f, false, out hint) == HintLookup.Hit && hint == "Too close to a settlement");
+                Check("a cached tile answers even while busy and before any dwell",
+                    cache.Lookup(7, 10, 1000, 0.42f, true, out hint) == HintLookup.Hit);
+
+                var hop = new PlacementHintCache();
+                bool anyEvaluate = false;
+                for (int i = 0; i < 50; i++)
+                    anyEvaluate |= hop.Lookup(100 + i, 10, 1000, i * 0.05f, false, out hint) == HintLookup.Evaluate;
+                Check("hopping across 50 tiles faster than the dwell never evaluates", !anyEvaluate);
+                Check("...and resting on the last one does",
+                    hop.Lookup(149, 10, 1000, 49 * 0.05f + 0.5f, false, out hint) == HintLookup.Evaluate);
+
+                var busy = new PlacementHintCache();
+                busy.Lookup(3, 10, 1000, 0f, true, out hint);
+                Check("while Map Preview is generating, a dwelt tile still waits",
+                    busy.Lookup(3, 10, 1000, 1.0f, true, out hint) == HintLookup.Wait);
+                Check("...and is evaluated the moment the preview is done, with no second dwell",
+                    busy.Lookup(3, 10, 1000, 1.01f, false, out hint) == HintLookup.Evaluate);
+
+                cache.Lookup(8, 10, 1000, 10.0f, false, out hint);
+                Check("an allowed tile reaches evaluation like any other",
+                    cache.Lookup(8, 10, 1000, 10.4f, false, out hint) == HintLookup.Evaluate);
+                cache.Store(8, 10, 1000, null);
+                Check("...and its empty answer is remembered too (allowed is the common case)",
+                    cache.Lookup(8, 10, 1000, 10.41f, false, out hint) == HintLookup.Hit && hint == null);
+
+                Check("paused world (tick unchanged) after a long real-time wait: still a hit",
+                    cache.Lookup(7, 10, 1000, 999f, false, out hint) == HintLookup.Hit);
+                Check("the refresh interval of game ticks expires the answer",
+                    cache.Lookup(7, 10, 1120, 999.1f, false, out hint) != HintLookup.Hit);
+                cache.Store(7, 10, 1120, "x");
+                Check("a changed world-object set invalidates the tile",
+                    cache.Lookup(7, 11, 1120, 999.2f, false, out hint) != HintLookup.Hit);
+                cache.Store(7, 11, 1120, "x");
+                Check("a tick that went backwards (another game loaded) invalidates too",
+                    cache.Lookup(7, 11, 5, 999.3f, false, out hint) != HintLookup.Hit);
+
+                var lru = new PlacementHintCache(capacity: 3, dwellSeconds: 0.35f, refreshIntervalTicks: 120);
+                lru.Store(1, 0, 0, "a");
+                lru.Store(2, 0, 0, "b");
+                lru.Store(3, 0, 0, "c");
+                lru.Lookup(1, 0, 0, 0f, false, out hint); // touch 1: tile 2 is now the least recently used
+                lru.Store(4, 0, 0, "d");
+                Check("the cache is bounded", lru.Count == 3);
+                Check("...and evicts the least recently used tile",
+                    !lru.Contains(2, 0, 0) && lru.Contains(1, 0, 0) && lru.Contains(3, 0, 0) && lru.Contains(4, 0, 0));
+                lru.Clear();
+                Check("clear empties it and resets the dwell",
+                    lru.Count == 0 && lru.Lookup(1, 0, 0, 0f, false, out hint) == HintLookup.Wait);
+            }
+
             Console.WriteLine();
             Console.WriteLine(failures == 0 ? "ALL PLACEMENT TESTS PASSED" : failures + " PLACEMENT TEST(S) FAILED");
             return failures == 0 ? 0 : 1;

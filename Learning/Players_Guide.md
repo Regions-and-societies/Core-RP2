@@ -49,7 +49,7 @@ Faction bases are placed by geography rather than scattered: each faction weighs
 
 Since 0.2.0 domains also prefer to **square off rather than spider**: growth favours provinces already embedded in the faction's territory — filling pockets before extending tendrils — controlled by the **Territory compactness** slider. It is a preference, never a rule: a faction pinned against an ocean still takes the awkward province when its land is dramatically better.
 
-After generation the same evaluator governs every new placement — yours and the AI's. A new permanent holding must keep a buffer from existing ones, stay within supply range of its faction, and expand outward from an existing foothold; only a rival's **exclusive** (71%+) hold refuses your starting colony, and settling merely claimed ground is allowed — expect it to anger the claimant. When a tile is refused, the world inspect pane tells you why.
+After generation the same evaluator governs every new placement — yours and the AI's. A new permanent holding must keep a buffer from existing ones, stay within supply range of its faction, and expand outward from an existing foothold; only a rival's **exclusive** (71%+) hold refuses your starting colony, and settling merely claimed ground is allowed — expect it to anger the claimant. When a tile is refused, the world inspect pane tells you why. Since 0.3.2 that line appears once a tile has stayed selected for about a third of a second (so hopping across the map costs nothing), it is remembered per tile while the world is unchanged, and with Map Preview installed it waits until the preview has finished generating. The settle and outpost buttons check immediately, as before.
 
 ## Settlement tiers and capitals
 
