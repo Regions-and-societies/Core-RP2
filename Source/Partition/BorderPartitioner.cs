@@ -690,7 +690,7 @@ namespace RegionsAndSocieties.Partition
                 default: hillClass = 0; break;
             }
 
-            float treeDensity = biome != null ? biome.TreeDensity : 0f;
+            float treeDensity = BiomeSafe.TreeDensity(biome);
             int forestBucket = treeDensity >= ThickTreeDensity ? 2 : (treeDensity >= WoodedTreeDensity ? 1 : 0);
 
             bool swamp = t.swampiness > 0.1f
