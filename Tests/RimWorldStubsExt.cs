@@ -12,6 +12,11 @@ using System.Collections.Generic;
 
 namespace UnityEngine
 {
+    public static class Time
+    {
+        public static float realtimeSinceStartup { get { return 0f; } }
+    }
+
     public static class Mathf
     {
         public static float Clamp01(float v) { return v < 0f ? 0f : (v > 1f ? 1f : v); }
@@ -321,6 +326,8 @@ namespace HarmonyLib
     public static class AccessTools
     {
         public static MethodBase Method(Type type, string name, Type[] parameters = null) { return null; }
+        public static Type TypeByName(string name) { return null; }
+        public static PropertyInfo Property(Type type, string name) { return null; }
     }
 }
 

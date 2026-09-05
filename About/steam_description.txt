@@ -1,5 +1,5 @@
 [b]Discord Community:[/b] [url=https://discord.gg/eVBebZ2N9s]https://discord.gg/eVBebZ2N9s[/url]
-[b]Version:[/b] v0.3.1 (Target: RimWorld 1.6)
+[b]Version:[/b] v0.3.2 (Target: RimWorld 1.6)
 
 [h2]Compatibility Patches[/h2]
 Install the matching patch and that mod's factions, settlements and events stay in sync with each region's demographics, ownership and population:
@@ -44,6 +44,13 @@ Most of the work happens at world generation: region borders are drawn and facti
 [/list]
 
 ---
+
+[h2]Changelog (v0.3.2) - Compatibility patch[/h2]
+[list]
+[*] [b]Fixed:[/b] world-map frame rate fell away when [b]clicking rapidly between tiles[/b]. The tile information pane ran a full settlement-placement evaluation the instant a tile was selected. The placement line ("too close to a settlement", "outside supply range") now appears once a tile has stayed selected for about a third of a second, and answers are remembered per tile while the world is unchanged, so revisiting a tile is free. Placement governance and the settle/outpost buttons are unchanged.
+[*] [b]Now compatible with Map Preview.[/b] Its worker-thread preview and our placement evaluation shared RimWorld's one world flood filler, which logged "Nested FloodFill calls are not allowed" on every selection. The pane's placement line now waits while a preview is generating (detected through Map Preview's public API, no dependency added).
+[*] [b]Fixed:[/b] placement rules were applied to tile [b]searches[/b], not only to the player's own settle checks. Quest-site and mod site searches test thousands of candidate tiles with the game's valid-settlement-tile check; each one got a full placement evaluation and most were refused on the player's supply rule, which could stall the game for a very long time when a mod ran such a search from a dialog and starved quests of sites. The rules now apply only to checks a player is about to read (settle button, starting-site page), never to searches.
+[/list]
 
 [h2]Changelog (v0.3.1) - Worldgen hotfix[/h2]
 [list]

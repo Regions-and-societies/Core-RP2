@@ -58,6 +58,7 @@ No ordering constraint has been observed against Empire, VOE, VEF, World Dominat
 
 ## Known incompatibilities
 
+- **Map Preview** (`m00nl1ght.MapPreview`) — **compatible as of 0.3.2.** Map Preview generates the selected tile's map on a worker thread, and part of that flood-fills RimWorld's single shared `WorldFloodFiller`; through 0.3.1 the inspect pane's placement evaluation flood-filled on the main thread at the same moment, so every tile selection logged `Nested FloodFill calls are not allowed`. Since 0.3.2 the pane's placement line is scheduled (a short dwell, cached per tile) and stands down while `MapPreviewAPI.IsGeneratingPreview` is true, read by reflection with no dependency. Verified in-game with repeated tile hops and previews generating: zero nested-flood-fill errors.
 - **Layered Atmosphere and Orbit (LAO)** (`MrHydralisk.LayeredAtmosphereOrbit`) — **compatible as of 0.3.0.** It was `incompatibleWith` in 0.2.3: LAO's `WorldDrawLayer.Visible` render patch dereferences each layer's planet layer, and this mod's region-border and capital overlays are *global* draw layers with none, so LAO null-referenced and black-worlded the map. Those overlays are now pinned to the surface layer, so LAO renders cleanly; the incompatibility has been removed. (LAO requires the Odyssey DLC.)
 
 ---

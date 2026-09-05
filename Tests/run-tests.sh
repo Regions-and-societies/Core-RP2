@@ -203,6 +203,7 @@ run_suite typecheck Library \
     $SRC/ProvinceAdjacency.cs \
     \
     $SRC/Patches/Patch_TileFinder_IsValidTileForNewSettlement.cs \
+    $SRC/Compat/MapPreviewCompat.cs \
     $SRC/Patches/Patch_WorldInspectPane_TileInspectString.cs
 [ "$failures" -eq "$pre_typecheck_failures" ] && echo "  type-check clean"
 
