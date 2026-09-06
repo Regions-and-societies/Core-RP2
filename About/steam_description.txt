@@ -84,5 +84,5 @@ Most of the work happens at world generation: region borders are drawn and facti
 [h2]Source Code and Support[/h2]
 GitHub: [url]https://github.com/Regions-and-societies/Core-RP2[/url]
 Steam Workshop: [url]https://steamcommunity.com/sharedfiles/filedetails/?id=3784666526[/url]
-Licence: [url=https://polyformproject.org/licenses/noncommercial/1.0.0/]PolyForm Noncommercial License 1.0.0[/url] - free for any noncommercial use.
+Licence: [url=https://github.com/Regions-and-societies/Core-RP2/blob/main/LICENSE]PolyForm Noncommercial License 1.0.0[/url] - free for any noncommercial use.
 Support development: [url]https://ko-fi.com/archdukejim[/url]
