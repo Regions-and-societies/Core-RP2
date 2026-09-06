@@ -57,17 +57,6 @@ Most of the work happens at world generation: region borders are drawn and facti
 [*] [b]Fixed:[/b] a new world could generate with [b]no factions and no settlements[/b]. Another mod's patch listing a wild plant twice in a biome (seen with ReGrowth 2 and Fertile Planet both adding pincushion cactus and drago trees to Extreme Desert) makes the game's plant cache throw, and the 0.3.0 partition reads it during world generation, so the whole faction step was discarded. Duplicated biome plants and animals are now merged at startup (logged, naming the biome and plant), every world-generation read of biome tree density is guarded, and if faction generation ever throws again it falls back to vanilla generation instead of an empty world.
 [/list]
 
-[h2]Changelog (v0.3.0) - Living Population Model[/h2]
-[list]
-[*] [b]New region partitioning[/b] inside the terrain's natural sections, with a pluggable algorithm (contain-then-subdivide, or the legacy anchor-Voronoi look) stamped on each world so old saves are never re-cut.
-[*] [b]Region inspection panel[/b] with Region, Population and Economy tabs.
-[*] [b]Faction character:[/b] raiders read as raiders, an imperial court as an elite; education is a five-level schooling ladder with real meaning.
-[*] [b]Settlement growth[/b] from in-game birthrates, a [b]residence layer[/b], and all overlays consolidated under one menu button.
-[*] [b]Population scale:[/b] populations three times larger, worlds start settled, and the terrain-aware sprawl is the one population field - heatmap, labels and region totals agree. Heatmap runs violet to yellow.
-[*] [b]Performance:[/b] demographics precomputed at load. Worldgen measured with all five DLCs and all four patches: 24 s at 30% coverage, about 3 minutes at 100%. Settlement road-linking and worldgen outpost seeding are out of this release and return reworked in 0.4.0.
-[*] [b]Odyssey[/b] orbit-layer objects handled cleanly; [b]Layered Atmosphere and Orbit[/b] now compatible.
-[*] [b]Fixed (thanks to 96localk):[/b] every generated faction was created hidden with no leader. Factions now generate visible with leaders, only chosen factions appear, and a one-time repair fixes old saves.
-[/list]
 [b]Full version history:[/b] [url=https://github.com/Regions-and-societies/Core-MMF/wiki/Changelog]github.com/Regions-and-societies/Core-MMF/wiki[/url]
 
 ---
