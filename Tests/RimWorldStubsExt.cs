@@ -56,7 +56,8 @@ namespace Verse
     // Player prefs surface used by the impure typecheck (the dev-mode tile inspector reads Prefs.DevMode).
     public static class Prefs { public static bool DevMode; }
 
-    public interface IExposable { void ExposeData(); }
+    // IExposable, IntRange, LoadSaveMode and Scribe moved to RimWorldStubs.cs (#55): the Placement layer
+    // now carries FactionPlacementProfile, which scribes, and the placement suite builds without this file.
 
     public enum LookMode { Undefined, Value, Def, Deep, Reference, LocalTargetInfo, TargetInfo, GlobalTargetInfo, BodyPart }
 
@@ -67,12 +68,7 @@ namespace Verse
         public static ProgramState ProgramState = ProgramState.Playing;
     }
 
-    public enum LoadSaveMode { Inactive, Saving, LoadingVars, ResolvingCrossRefs, PostLoadInit }
 
-    public static class Scribe
-    {
-        public static LoadSaveMode mode = LoadSaveMode.Inactive;
-    }
 
     public static class Scribe_Collections
     {
@@ -265,12 +261,6 @@ namespace Verse
         public float min;
         public float max;
         public FloatRange(float min, float max) { this.min = min; this.max = max; }
-    }
-
-    public struct IntRange
-    {
-        public int min;
-        public int max;
     }
 
     public class RoadDef : Def { }

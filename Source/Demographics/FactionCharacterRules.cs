@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+
 namespace RegionsAndSocieties.Demographics
 {
     /// <summary>The broad character a faction's people have, beyond their raw tech level (#27).</summary>
@@ -59,14 +62,70 @@ namespace RegionsAndSocieties.Demographics
             }
         }
 
+        /// <summary>Where a faction's archetype came from, for the demographics debug dump (#55).</summary>
+        public enum ArchetypeSource
+        {
+            Registered,   // a compatibility patch (or core) registered it by defName
+            BuiltIn,      // core's base-game / DLC defName table
+            TraitGuess,   // unknown faction: guessed from hostility + tech level
+        }
+
+        private static readonly Dictionary<string, FactionArchetype> registered =
+            new Dictionary<string, FactionArchetype>(StringComparer.Ordinal);
+
         /// <summary>
-        /// Classify a faction into its archetype. Known base-game and DLC factions are matched by defName;
-        /// an unknown faction (modded / VFE) falls back to a trait guess: a permanent-enemy band of
-        /// medieval-or-better tech reads as raiders, a neolithic-or-below faction as a tribe, everything
-        /// else neutral. <paramref name="techLevel"/> is RimWorld's TechLevel ordinal (Animal=1 … Archotech=7).
+        /// Register (or replace) the archetype for a faction by defName (#55). Consulted by
+        /// <see cref="Classify(string,int,bool)"/> before the built-in table and the trait guess, so a
+        /// compatibility patch can give a modded faction its real character instead of the guess. Later
+        /// registrations for the same defName win. Called from a patch's Mod constructor; static for
+        /// the process lifetime.
+        /// </summary>
+        public static void RegisterArchetype(string factionDefName, FactionArchetype archetype)
+        {
+            if (string.IsNullOrEmpty(factionDefName)) return;
+            registered[factionDefName] = archetype;
+        }
+
+        public static bool TryGetRegisteredArchetype(string factionDefName, out FactionArchetype archetype)
+        {
+            archetype = FactionArchetype.Generic;
+            return !string.IsNullOrEmpty(factionDefName) && registered.TryGetValue(factionDefName, out archetype);
+        }
+
+        /// <summary>Every registered defName, for the debug report.</summary>
+        public static IEnumerable<string> RegisteredDefNames
+        {
+            get { return registered.Keys; }
+        }
+
+        /// <summary>Test-only: forget every registration.</summary>
+        public static void ResetRegistrations()
+        {
+            registered.Clear();
+        }
+
+        /// <summary>
+        /// Classify a faction into its archetype. A registered archetype (#55) wins; then known base-game
+        /// and DLC factions are matched by defName; an unknown faction (modded / VFE) falls back to a
+        /// trait guess: a permanent-enemy band of medieval-or-better tech reads as raiders, a
+        /// neolithic-or-below faction as a tribe, everything else neutral. <paramref name="techLevel"/>
+        /// is RimWorld's TechLevel ordinal (Animal=1 … Archotech=7).
         /// </summary>
         public static FactionArchetype Classify(string defName, int techLevel, bool permanentEnemy)
         {
+            return Classify(defName, techLevel, permanentEnemy, out _);
+        }
+
+        /// <summary>As <see cref="Classify(string,int,bool)"/>, also reporting where the answer came from.</summary>
+        public static FactionArchetype Classify(string defName, int techLevel, bool permanentEnemy, out ArchetypeSource source)
+        {
+            if (TryGetRegisteredArchetype(defName, out FactionArchetype registeredArchetype))
+            {
+                source = ArchetypeSource.Registered;
+                return registeredArchetype;
+            }
+
+            source = ArchetypeSource.BuiltIn;
             switch (defName)
             {
                 // Raiders — Core + Ideology + Biotech pirate variants.
@@ -105,7 +164,8 @@ namespace RegionsAndSocieties.Demographics
                 case "HoraxCult":     return FactionArchetype.Cult;          // Anomaly
             }
 
-            // Unknown faction (modded / VFE): guess from traits; a CP can override with a real mapping.
+            // Unknown faction (modded / VFE): guess from traits; a CP overrides via RegisterArchetype.
+            source = ArchetypeSource.TraitGuess;
             if (permanentEnemy && techLevel >= 3) return FactionArchetype.Raider;
             if (techLevel <= 2) return FactionArchetype.Tribe;
             return FactionArchetype.Generic;
