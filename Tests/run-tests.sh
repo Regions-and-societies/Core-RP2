@@ -92,6 +92,8 @@ run_suite integration Exe \
     Tests/RimWorldStubs.cs Tests/IntegrationTests.cs \
     $INTEGRATION_PURE
 
+# Placement also carries FactionPlacementProfile + the defaults registry (#55); the IExposable /
+# IntRange surface they scribe through lives in RimWorldStubs.cs so this suite stays on the base stubs.
 run_suite placement Exe \
     Tests/RimWorldStubs.cs Tests/PlacementTests.cs \
     $INTEGRATION_PURE $SRC/Placement/*.cs

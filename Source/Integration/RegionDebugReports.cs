@@ -1428,6 +1428,14 @@ namespace RegionsAndSocieties.Integration
             {
                 RegionDemographics d = row.d;
                 sb.AppendLine($"-- {row.f.Name}: {d.settledTiles} tiles    median wealth {d.overallMedianWealth}    female {d.femaleFraction:P0}    median age {d.medianAge} --");
+                // #55: which character the faction was given and where that came from (a patch's
+                // registration, core's built-in table, or the trait guess for an unknown faction).
+                FactionArchetype archetype = FactionCharacterRules.Classify(
+                    row.f.def?.defName, (int)(row.f.def?.techLevel ?? TechLevel.Industrial), row.f.def?.permanentEnemy ?? false,
+                    out FactionCharacterRules.ArchetypeSource archetypeSource);
+                string sourceLabel = archetypeSource == FactionCharacterRules.ArchetypeSource.Registered ? "registered by a patch or core"
+                    : archetypeSource == FactionCharacterRules.ArchetypeSource.BuiltIn ? "built-in table" : "trait guess (unknown faction)";
+                sb.AppendLine($"   archetype: {archetype} ({sourceLabel}; def {row.f.def?.defName})");
                 foreach (var kv in d.raceShares.OrderByDescending(k => k.Value))
                 {
                     d.medianWealthByRace.TryGetValue(kv.Key, out int w);

@@ -5,46 +5,8 @@ using Verse;
 
 namespace RegionsAndSocieties
 {
-    public class FactionPlacementProfile : IExposable
-    {
-        public string factionDefName;
-        public float mineralWeight = 1.0f;
-        public float nutritionWeight = 1.0f;
-        public float forageWeight = 1.0f;
-        public float grazingWeight = 1.0f;
-        public float huntingWeight = 1.0f;
-        public float marginWeight = 0.0f;
-        public IntRange baseCountRange = new IntRange(5, 15);
-        public int placementOrder = 3;
-
-        public FactionPlacementProfile() { }
-
-        public FactionPlacementProfile(string defName, float mineral, float nutrition, float forage, float grazing, float hunting, float margin, int minB, int maxB, int order)
-        {
-            this.factionDefName = defName;
-            this.mineralWeight = mineral;
-            this.nutritionWeight = nutrition;
-            this.forageWeight = forage;
-            this.grazingWeight = grazing;
-            this.huntingWeight = hunting;
-            this.marginWeight = margin;
-            this.baseCountRange = new IntRange(minB, maxB);
-            this.placementOrder = order;
-        }
-
-        public void ExposeData()
-        {
-            Scribe_Values.Look(ref factionDefName, "factionDefName");
-            Scribe_Values.Look(ref mineralWeight, "mineralWeight", 1.0f);
-            Scribe_Values.Look(ref nutritionWeight, "nutritionWeight", 1.0f);
-            Scribe_Values.Look(ref forageWeight, "forageWeight", 1.0f);
-            Scribe_Values.Look(ref grazingWeight, "grazingWeight", 1.0f);
-            Scribe_Values.Look(ref huntingWeight, "huntingWeight", 1.0f);
-            Scribe_Values.Look(ref marginWeight, "marginWeight", 0.0f);
-            Scribe_Values.Look(ref baseCountRange, "baseCountRange", new IntRange(5, 15));
-            Scribe_Values.Look(ref placementOrder, "placementOrder", 3);
-        }
-    }
+    // FactionPlacementProfile moved to Source/Placement/FactionPlacementProfile.cs (#55) so the defaults
+    // registry and its tests can build profiles without the game. Same namespace, same public shape.
 
     public class FactionPlacementSettings : ModSettings
     {
@@ -169,79 +131,18 @@ namespace RegionsAndSocieties
             return p;
         }
 
+        /// <summary>
+        /// The default profile for a faction (#55): a curated registration — core's own (Empire) or a
+        /// compatibility patch's for its factions — when one exists, otherwise the tech-level guess.
+        /// Always a fresh instance; the caller may edit it. A profile the user has already saved wins
+        /// over both, because <see cref="GetProfile"/> only asks here when nothing is saved.
+        /// </summary>
         public static FactionPlacementProfile GetDefaultProfile(FactionDef def)
         {
-            float mineral = 1.0f;
-            float nutrition = 1.0f;
-            float forage = 1.0f;
-            float grazing = 1.0f;
-            float hunting = 1.0f;
-            float margin = 0.0f;
-            int minB = 5;
-            int maxB = 15;
-
-            if (def.techLevel >= TechLevel.Spacer)
-            {
-                mineral = 2.5f;
-                nutrition = 0.5f;
-                forage = 0.1f;
-                grazing = 0.1f;
-                hunting = 0.2f;
-                margin = 0.0f;
-            }
-            else if (def.techLevel == TechLevel.Industrial)
-            {
-                mineral = 1.0f;
-                nutrition = 2.0f;
-                forage = 0.2f;
-                grazing = 0.8f;
-                hunting = 0.8f;
-                margin = 0.0f;
-            }
-            else
-            {
-                mineral = 0.2f;
-                nutrition = 0.2f;
-                forage = 2.0f;
-                if (def.hostileToFactionlessHumanlikes || def.permanentEnemy)
-                {
-                    grazing = 0.2f;
-                    hunting = 2.0f;
-                }
-                else
-                {
-                    grazing = 2.0f;
-                    hunting = 0.2f;
-                }
-                margin = 0.1f;
-            }
-
-            int order = 3;
-            if (def.defName == "Empire")
-            {
-                order = 2;
-            }
-            else if (def.techLevel == TechLevel.Industrial)
-            {
-                order = 1;
-            }
-            else if (def.techLevel >= TechLevel.Spacer)
-            {
-                order = 3;
-            }
-            else
-            {
-                order = 4;
-            }
-
-            if (def.hostileToFactionlessHumanlikes || def.permanentEnemy)
-            {
-                margin = 2.5f;
-                minB = 3;
-                maxB = 8;
-            }
-
-            return new FactionPlacementProfile(def.defName, mineral, nutrition, forage, grazing, hunting, margin, minB, maxB, order);
+            if (def == null) return null;
+            if (FactionPlacementDefaults.TryGet(def.defName, out var registered)) return registered;
+            bool hostile = def.hostileToFactionlessHumanlikes || def.permanentEnemy;
+            return FactionPlacementDefaults.TechLevelDefault(def.defName, (int)def.techLevel, hostile);
         }
     }
 }

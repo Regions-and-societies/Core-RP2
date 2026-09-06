@@ -40,6 +40,16 @@ namespace Verse
 
     public class ModSettings { public virtual void ExposeData() { } }
 
+    // Scribing surface for FactionPlacementProfile, which lives in the pure Placement layer (#55).
+    public interface IExposable { void ExposeData(); }
+
+    public struct IntRange
+    {
+        public int min;
+        public int max;
+        public IntRange(int min, int max) { this.min = min; this.max = max; }
+    }
+
     // The real Pawn is Verse.Pawn. It lived under RimWorld.Planet in these stubs until the
     // residency suite needed the same type the source actually names.
     public partial class Pawn { }

@@ -53,7 +53,8 @@ namespace Verse
 {
     using RimWorld.Planet;
 
-    public interface IExposable { void ExposeData(); }
+    // IExposable and IntRange moved to RimWorldStubs.cs (#55): the Placement layer now carries
+    // FactionPlacementProfile, which scribes, and the placement suite builds without this file.
 
     public enum LookMode { Undefined, Value, Def, Deep, Reference, LocalTargetInfo, TargetInfo, GlobalTargetInfo, BodyPart }
 
@@ -256,12 +257,6 @@ namespace Verse
         public float min;
         public float max;
         public FloatRange(float min, float max) { this.min = min; this.max = max; }
-    }
-
-    public struct IntRange
-    {
-        public int min;
-        public int max;
     }
 
     public class RoadDef : Def { }

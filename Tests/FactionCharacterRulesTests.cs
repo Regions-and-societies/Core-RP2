@@ -31,6 +31,30 @@ namespace FactionCharacterRulesTests
             Check("peaceful industrial unknown -> Generic", FactionCharacterRules.Classify("VFE_SomeTown", industrial, false) == FactionArchetype.Generic);
             Check("null defName is survivable", FactionCharacterRules.Classify(null, industrial, false) == FactionArchetype.Generic);
 
+            Section("a compatibility patch can register archetypes (#55)");
+            FactionCharacterRules.ResetRegistrations();
+            FactionCharacterRules.ArchetypeSource src;
+            Check("before registration the VFE town is a trait guess",
+                FactionCharacterRules.Classify("VFE_SomeTown", industrial, false, out src) == FactionArchetype.Generic && src == FactionCharacterRules.ArchetypeSource.TraitGuess);
+            FactionCharacterRules.RegisterArchetype("VFE_SomeTown", FactionArchetype.Merchant);
+            Check("registered archetype wins over the trait guess",
+                FactionCharacterRules.Classify("VFE_SomeTown", industrial, false, out src) == FactionArchetype.Merchant && src == FactionCharacterRules.ArchetypeSource.Registered);
+            Check("three-argument Classify sees it too", FactionCharacterRules.Classify("VFE_SomeTown", industrial, false) == FactionArchetype.Merchant);
+            Check("TryGetRegisteredArchetype reports it", FactionCharacterRules.TryGetRegisteredArchetype("VFE_SomeTown", out var got) && got == FactionArchetype.Merchant);
+            FactionCharacterRules.RegisterArchetype("VFE_SomeTown", FactionArchetype.Cult);
+            Check("a later registration for the same defName wins", FactionCharacterRules.Classify("VFE_SomeTown", industrial, false) == FactionArchetype.Cult);
+            FactionCharacterRules.RegisterArchetype("Pirate", FactionArchetype.Merchant);
+            Check("a registration overrides even a built-in defName",
+                FactionCharacterRules.Classify("Pirate", industrial, true, out src) == FactionArchetype.Merchant && src == FactionCharacterRules.ArchetypeSource.Registered);
+            Check("built-in source is reported for an unregistered known faction",
+                FactionCharacterRules.Classify("Empire", spacer, false, out src) == FactionArchetype.Imperial && src == FactionCharacterRules.ArchetypeSource.BuiltIn);
+            FactionCharacterRules.RegisterArchetype(null, FactionArchetype.Cult);
+            FactionCharacterRules.RegisterArchetype("", FactionArchetype.Cult);
+            Check("null / empty names are ignored", !FactionCharacterRules.TryGetRegisteredArchetype("", out _) && !FactionCharacterRules.TryGetRegisteredArchetype(null, out _));
+            FactionCharacterRules.ResetRegistrations();
+            Check("reset restores the built-in answer", FactionCharacterRules.Classify("Pirate", industrial, true) == FactionArchetype.Raider);
+            Check("reset restores the trait guess", FactionCharacterRules.Classify("VFE_SomeTown", industrial, false) == FactionArchetype.Generic);
+
             Section("archetype modifiers point the right way");
             var raider = FactionCharacterRules.CharacterOf(FactionArchetype.Raider);
             var outlander = FactionCharacterRules.CharacterOf(FactionArchetype.Outlander);

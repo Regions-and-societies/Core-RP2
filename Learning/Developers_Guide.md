@@ -10,6 +10,7 @@ Contents:
 - [World-object classification queries](#world-object-classification-queries) — ask core what an object is
 - [Loose-binding adapters](#loose-binding-adapters) — reflection profiles for patches without an assembly reference
 - [Holding creators](#holding-creators) — teach core to *build* another mod's holdings
+- [Faction placement defaults and archetypes](#faction-placement-defaults-and-archetypes) — curated placement profiles and character for your factions
 - [Demographic providers](#demographic-providers) — contribute a demographics component to ownership
 - [Territory-claim hook](#territory-claim-hook) — consume the contested-settlement event
 - [Ownership vocabulary](#ownership-vocabulary) — tiers, thresholds and placement rules
@@ -360,6 +361,62 @@ Downstream cleanup (contiguity enforcement, tiny-region merging, ownership) runs
 
 ---
 
+## Faction placement defaults and archetypes
+
+Core ships curated defaults for base-game and DLC factions: a **placement profile** (how a faction weighs land, how many holdings it wants, where it goes in the placement order) and a **character archetype** (how its people read against their tech level — pirates live on loot, the Empire is stratified and rich). A modded faction otherwise gets a tech-level guess for both. A compatibility patch registers the real answers for its factions; both registries are the same mechanism core's own table uses (Empire's order-2 placement is a registration, not a defName compare).
+
+Register from your `Mod` constructor. Patches load after core, so registration lands before any world generation; a later registration for the same defName replaces an earlier one, so a patch that loads after another can refine it. Registrations are static for the process lifetime. **A profile the player has already saved in the placement settings always wins** — the registry is only consulted when there is no saved profile for the faction, and by *Reset Default* in the settings dialog.
+
+### FactionPlacementDefaults (`RegionsAndSocieties`)
+
+| Member | Signature | Notes |
+|---|---|---|
+| `Register` | `void Register(string factionDefName, FactionPlacementProfile profile)` | Stores a copy, stamped with `factionDefName`. Null/empty ignored. Logged. |
+| `TryGet` | `bool TryGet(string factionDefName, out FactionPlacementProfile profile)` | A fresh copy of the registration, or false. |
+| `IsRegistered` / `RegisteredDefNames` | | Introspection for reports. |
+| `TechLevelDefault` | `FactionPlacementProfile TechLevelDefault(string defName, int techLevel, bool hostile)` | The guess an unregistered faction gets; handy as a starting point to tweak. `techLevel` is the `TechLevel` ordinal, `hostile` is `hostileToFactionlessHumanlikes \|\| permanentEnemy`. |
+
+`FactionPlacementProfile` (`RegionsAndSocieties`) carries `mineralWeight`, `nutritionWeight`, `forageWeight`, `grazingWeight`, `huntingWeight`, `marginWeight`, `baseCountRange` (holdings min..max) and `placementOrder` (1 = placed first). Constructor: `(defName, mineral, nutrition, forage, grazing, hunting, margin, minHoldings, maxHoldings, order)`.
+
+### FactionCharacterRules.RegisterArchetype (`RegionsAndSocieties.Demographics`)
+
+| Member | Signature | Notes |
+|---|---|---|
+| `RegisterArchetype` | `void RegisterArchetype(string factionDefName, FactionArchetype archetype)` | Consulted by `Classify` before the built-in table and the trait guess. |
+| `TryGetRegisteredArchetype` | `bool TryGetRegisteredArchetype(string factionDefName, out FactionArchetype a)` | |
+| `Classify` | `FactionArchetype Classify(string defName, int techLevel, bool permanentEnemy, out ArchetypeSource source)` | `source` says whether the answer was `Registered`, `BuiltIn` or a `TraitGuess`; the faction-wide demographics debug report prints it. |
+
+`FactionArchetype`: `Generic`, `Outlander`, `Tribe`, `Raider`, `Imperial`, `Merchant`, `Scavenger`, `AncientElite`, `Cult`. Each maps to a knowledge skew and a wealth multiplier (`CharacterOf`).
+
+**Worked example** (a Vanilla Factions Expanded patch):
+
+```csharp
+using RegionsAndSocieties;
+using RegionsAndSocieties.Demographics;
+
+public class VfePatchMod : Mod
+{
+    public VfePatchMod(ModContentPack content) : base(content)
+    {
+        // A mechanoid-hunting mercenary company: spacer weights, but it places early and wants few, large holdings.
+        var mercs = FactionPlacementDefaults.TechLevelDefault("VFEM_Mercenaries", FactionPlacementDefaults.TechSpacer, false);
+        mercs.placementOrder = 2;
+        mercs.baseCountRange = new IntRange(3, 6);
+        FactionPlacementDefaults.Register("VFEM_Mercenaries", mercs);
+        FactionCharacterRules.RegisterArchetype("VFEM_Mercenaries", FactionArchetype.Scavenger);
+
+        // A settled trading league: fully hand-written profile.
+        FactionPlacementDefaults.Register("VFEC_TradingLeague",
+            new FactionPlacementProfile("VFEC_TradingLeague", mineral: 0.8f, nutrition: 2.2f, forage: 0.2f, grazing: 1.0f, hunting: 0.4f, margin: 0f, minB: 6, maxB: 14, order: 1));
+        FactionCharacterRules.RegisterArchetype("VFEC_TradingLeague", FactionArchetype.Merchant);
+    }
+}
+```
+
+Verify in game with the "R&S: faction demographics (#36)" debug action — each faction's line shows its archetype and where it came from — and the placement settings dialog, where *Reset Default* returns a registered profile.
+
+---
+
 ## Demographic providers
 
 Namespace `RegionsAndSocieties` (root). A provider contributes the **demographics component** of a province's ownership score — "what share of this region's people match this faction".
@@ -598,7 +655,7 @@ Raw fields (`masterEnabled`, `placementGovernance`, ..., `populationCapMultiplie
 
 ### FactionPlacementSettings (`RegionsAndSocieties`)
 
-Public statics a patch may read: `claimedLandAreaPercent` (the worldgen density knob), `territoryCompactness` (how strongly domains prefer squaring over spidering, 0..1 — see Territory compactness above), `strictTerritorialOwnershipDefault` (whether newly generated worlds enforce placement rules; in-progress worlds decide on load — see [Save Compatibility](Save_Compatibility)), `minRegionSize` / `maxRegionSize`, `showCalculationBreakdowns` / `ShowCalculations`, and the per-faction `FactionPlacementProfile` table via `GetProfile(FactionDef def)`.
+Public statics a patch may read: `claimedLandAreaPercent` (the worldgen density knob), `territoryCompactness` (how strongly domains prefer squaring over spidering, 0..1 — see Territory compactness above), `strictTerritorialOwnershipDefault` (whether newly generated worlds enforce placement rules; in-progress worlds decide on load — see [Save Compatibility](Save_Compatibility)), `minRegionSize` / `maxRegionSize`, `showCalculationBreakdowns` / `ShowCalculations`, and the per-faction `FactionPlacementProfile` table via `GetProfile(FactionDef def)` (the player's saved profile, or the default). `GetDefaultProfile(FactionDef def)` is the default alone: a registered profile if one exists (see [Faction placement defaults and archetypes](#faction-placement-defaults-and-archetypes)), otherwise the tech-level guess.
 
 ---
 

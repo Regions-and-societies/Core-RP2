@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using RegionsAndSocieties;
 using RegionsAndSocieties.Integration;
 using RegionsAndSocieties.Placement;
 
@@ -293,6 +294,68 @@ namespace PlacementTests
                 lru.Clear();
                 Check("clear empties it and resets the dwell",
                     lru.Count == 0 && lru.Lookup(1, 0, 0, 0f, false, out hint) == HintLookup.Wait);
+            }
+
+            Section("faction placement defaults registry (#55)");
+            {
+                const int neolithic = 2, industrial = 4, spacer = 5, ultra = 6;
+                FactionPlacementDefaults.Reset();
+
+                // Core's own table: Empire is the spacer default with placement order 2 — the registration
+                // that replaced the old defName compare.
+                Check("Empire is registered by core", FactionPlacementDefaults.IsRegistered("Empire"));
+                FactionPlacementProfile empire;
+                Check("Empire resolves", FactionPlacementDefaults.TryGet("Empire", out empire) && empire != null);
+                var spacerDefault = FactionPlacementDefaults.TechLevelDefault("Empire", ultra, false);
+                Check("Empire = spacer weights", empire.mineralWeight == spacerDefault.mineralWeight && empire.nutritionWeight == spacerDefault.nutritionWeight
+                    && empire.forageWeight == spacerDefault.forageWeight && empire.huntingWeight == spacerDefault.huntingWeight);
+                Check("Empire places at order 2", empire.placementOrder == 2 && spacerDefault.placementOrder == 3);
+                Check("Empire keeps the default holding range", empire.baseCountRange.min == 5 && empire.baseCountRange.max == 15);
+
+                // The tech-level fallback, the guess an unregistered faction gets.
+                var ind = FactionPlacementDefaults.TechLevelDefault("OutlanderCivil", industrial, false);
+                var tribe = FactionPlacementDefaults.TechLevelDefault("TribeCivil", neolithic, false);
+                var fierce = FactionPlacementDefaults.TechLevelDefault("TribeSavage", neolithic, true);
+                var pirate = FactionPlacementDefaults.TechLevelDefault("Pirate", industrial, true);
+                var sp = FactionPlacementDefaults.TechLevelDefault("Some_Spacer", spacer, false);
+                Check("industrial: nutrition-led, order 1", ind.nutritionWeight == 2.0f && ind.placementOrder == 1);
+                Check("gentle tribe: forage + grazing, order 4", tribe.forageWeight == 2.0f && tribe.grazingWeight == 2.0f && tribe.huntingWeight == 0.2f && tribe.placementOrder == 4);
+                Check("fierce tribe hunts instead of grazes", fierce.huntingWeight == 2.0f && fierce.grazingWeight == 0.2f);
+                Check("hostile factions want margin and fewer holdings", pirate.marginWeight == 2.5f && pirate.baseCountRange.min == 3 && pirate.baseCountRange.max == 8);
+                Check("spacer: mineral-led, order 3", sp.mineralWeight == 2.5f && sp.placementOrder == 3);
+                Check("fallback stamps the defName", ind.factionDefName == "OutlanderCivil");
+
+                // A patch registering a modded faction.
+                Check("unknown faction is not registered", !FactionPlacementDefaults.TryGet("VFE_Mechanoids", out _));
+                var vfe = new FactionPlacementProfile("ignored-name", 3f, 0.1f, 0.1f, 0.1f, 0.1f, 1f, 2, 6, 5);
+                FactionPlacementDefaults.Register("VFE_Mechanoids", vfe);
+                FactionPlacementProfile got;
+                Check("registered profile resolves", FactionPlacementDefaults.TryGet("VFE_Mechanoids", out got) && got.mineralWeight == 3f && got.placementOrder == 5);
+                Check("registration stamps the defName it was registered under", got.factionDefName == "VFE_Mechanoids");
+                Check("holding range carried", got.baseCountRange.min == 2 && got.baseCountRange.max == 6);
+
+                // Copies both ways: neither the caller's instance nor a handed-out profile can mutate the template.
+                vfe.mineralWeight = 9f;
+                got.placementOrder = 1;
+                FactionPlacementDefaults.TryGet("VFE_Mechanoids", out var again);
+                Check("registry keeps its own copy", again.mineralWeight == 3f && again.placementOrder == 5);
+
+                // Later registrations win; core's Empire can be refined by a patch the same way.
+                FactionPlacementDefaults.Register("VFE_Mechanoids", new FactionPlacementProfile(null, 1f, 1f, 1f, 1f, 1f, 0f, 1, 2, 4));
+                FactionPlacementDefaults.TryGet("VFE_Mechanoids", out var refined);
+                Check("later registration wins", refined.mineralWeight == 1f && refined.baseCountRange.max == 2);
+                FactionPlacementDefaults.Register("Empire", new FactionPlacementProfile(null, 1f, 1f, 1f, 1f, 1f, 0f, 1, 2, 1));
+                FactionPlacementDefaults.TryGet("Empire", out var empire2);
+                Check("a patch may refine core's Empire entry", empire2.placementOrder == 1);
+
+                FactionPlacementDefaults.Register(null, vfe);
+                FactionPlacementDefaults.Register("", vfe);
+                FactionPlacementDefaults.Register("X", null);
+                Check("null / empty registrations are ignored", !FactionPlacementDefaults.IsRegistered("") && !FactionPlacementDefaults.IsRegistered("X"));
+
+                FactionPlacementDefaults.Reset();
+                Check("reset drops the patch's entries and restores core's", !FactionPlacementDefaults.IsRegistered("VFE_Mechanoids")
+                    && FactionPlacementDefaults.TryGet("Empire", out var empire3) && empire3.placementOrder == 2);
             }
 
             Console.WriteLine();
