@@ -205,7 +205,7 @@ namespace RegionsAndSocieties
             // The demographic axes render as visual charts in the region panel (#26, DemographicsPanel).
             // The text summaries are kept for callers that want a plain-text dump (the hover path, debug
             // reports), and skipped when the visual panel is drawing them so nothing is shown twice.
-            if (includeDemographics)
+            if (includeDemographics && RegionsAndSocietiesMod.SocietiesEnabled)   // #53: no demographic lines when Societies off
             {
                 string ageSummary = Demographics.RegionDemographicsUtility.AgeStructureSummary(province);
                 string sexSummary = Demographics.RegionDemographicsUtility.SexRatioSummary(province);

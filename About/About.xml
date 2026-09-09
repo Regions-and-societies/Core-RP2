@@ -4,7 +4,7 @@
     <author>Regions and Societies Team</author>
     <packageId>RegionsAndSocieties.CoreRP2</packageId>
     <url>https://github.com/Regions-and-societies/Core-RP2</url>
-    <modVersion>0.3.2</modVersion>
+    <modVersion>0.4.0</modVersion>
     <supportedVersions>
         <li>1.6</li>
     </supportedVersions>
@@ -44,51 +44,60 @@
     </loadAfter>
     <description>
 Discord Community: https://discord.gg/eVBebZ2N9s
-Version: v0.3.2 (Target: RimWorld 1.6)
+Version: v0.4.0 (Target: RimWorld 1.6)
 
 Regions and Societies — Realistic Planets 2 edition
 Official Wiki and Documentation: https://github.com/Regions-and-societies/Core-MMF/wiki
 
 This is the Realistic Planets 2 build of Regions and Societies. It is identical to the standard mod except that it runs on the map-mode framework bundled with Realistic Planets 2 instead of the standalone Map Mode Framework. Use this edition if you play with Realistic Planets 2; use the standard edition otherwise. Do not run both editions, or both frameworks, at once.
 
-Regions and Societies overhauls the world map into living geography: dynamic geographic provinces with terrain-aware borders, four-tier faction territory ownership, geography-driven faction placement, full regional demographics across seven axes with their own map overlays, a population-density heatmap, trade roads and procedural ruins - all built on the Map Mode Framework. It is the continuation of Regions and Territories under a new identity.
+Regions and Societies overhauls the world map into living geography: dynamic geographic provinces with terrain-aware borders that follow the land, four-tier faction territory ownership, geography-driven faction placement you set up before you generate the world, and full regional demographics across seven axes with their own map overlays - built on Realistic Planets 2's bundled map-mode framework. It is the continuation of Regions and Territories under a new identity.
 
 Features:
-- Geographic Domain Mapping: splits the world into dynamic provinces with clear, terrain-aware boundaries.
-- Territorial Ownership: a four-tier ladder from exclusive hold to loose claim, shaded on the map, with coastlines and mountains reading as real borders.
-- Geography-Driven Faction Placement: nations settle as contiguous territory, one settlement per region, weighing established claim against resources, shying away from rivals' ground, and squaring their domains off rather than spidering.
-- Regional Demographics: every region carries a deterministic demographic profile - age structure, sex ratio, xenotypes, ideoligions, wealth, education and employment - derived from the factions pressing on it, their tech and beliefs, and the land itself. Nothing is stored in your save.
+- Geographic Domain Mapping: splits the world into dynamic provinces whose borders follow the terrain - coasts, mountain ridges and biome edges - with inland lakes shared between their shores and small islands folded into the mainland; every region is one connected landmass.
+- Territorial Ownership: a four-tier ladder from exclusive hold to loose claim, shaded on the map; a faction that holds half a region earns its natural barriers - coasts, rock and ridges - as a secure border.
+- Geography-Driven Faction Placement: nations settle by a biome's real liveability, cluster or scatter to taste, and scattered low-tech peoples split into regional kin factions. Set every faction's share of the world in the new-game Geographic Placement dialog.
+- Regional Demographics: every region carries a deterministic demographic profile - age structure, sex ratio, xenotypes, ideoligions, wealth, education and employment - derived from the factions pressing on it, their tech and beliefs, and the land itself. Nothing is stored in your save. A single Societies switch turns the whole population layer off for a geography-only game.
 - Demographic Map Overlays: seven world-map overlays, one per axis, plus faction territory and population density, running on Realistic Planets 2's bundled map-mode framework.
 - Region Panel Breakdown: the expanded region readout shows the full demographic profile alongside ownership and economics.
-- Hooks for Other Mods: a public API lets war and drafting mods skew a region's sex ratio (drafts, combat losses) with generational recovery, and lets expansion mods rank territory the way core does.
+- Hooks for Other Mods: a public API lets war and drafting mods skew a region's sex ratio (drafts, combat losses) with generational recovery, lets expansion mods rank territory the way core does, and lets companion patches seed their own outposts and holdings at world generation.
 
 *** BEST ON A NEW COLONY - EXISTING SAVES ARE SUPPORTED IN COMPATIBILITY MODE ***
 A world generated with the mod installed gets everything, including placement rules. A world already in progress is adopted in Compatibility Mode: provinces are drawn and territory is owned and shown, but placement stays with vanilla or whichever mod owns it. The mode is decided once per save and shown under Strict territorial ownership in the mod settings. Removing the mod from an in-progress save is not supported and will log errors.
 
 Requires: Realistic Planets 2, Harmony
 
---- Changelog (v0.3.2) - Compatibility patch ---
-- Fixed: world-map frame rate fell away when clicking rapidly between tiles. The tile information pane ran a full settlement-placement evaluation the instant a tile was selected. The placement line ("too close to a settlement", "outside supply range") now appears once a tile has stayed selected for about a third of a second, and answers are remembered per tile while the world is unchanged, so revisiting a tile is free. Placement governance and the settle/outpost buttons are unchanged.
-- Now compatible with Map Preview. Its worker-thread preview and our placement evaluation shared RimWorld's one world flood filler, which logged "Nested FloodFill calls are not allowed" on every selection. The pane's placement line now waits while a preview is generating (detected through Map Preview's public API, no dependency added).
-- Fixed: placement rules were applied to tile SEARCHES, not only to the player's own settle checks. Quest-site and mod site searches test thousands of candidate tiles with the game's valid-settlement-tile check; each one got a full placement evaluation and most were refused on the player's supply rule, which could stall the game for a very long time when a mod ran such a search from a dialog and starved quests of sites. The rules now apply only to checks a player is about to read (settle button, starting-site page), never to searches.
+--- Changelog (v0.4.0) - Map & Placement ---
+The world map is redrawn to follow the land, and factions settle it with character. A new-game Geographic Placement dialog puts territory shares, clustering and kin in your hands.
 
---- Changelog (v0.3.1) - Worldgen hotfix ---
-- Fixed: a new world could generate with NO factions and no settlements. Cause: another mod's patch listing a wild plant twice in a biome (seen with ReGrowth 2 and Fertile Planet both adding pincushion cactus and drago trees to Extreme Desert) makes the game's plant cache throw, and the 0.3.0 partition reads it during world generation, so the whole faction step was discarded. Duplicated biome plants and animals are now merged at startup (logged, naming the biome and plant), every world-generation read of biome tree density is guarded, and if faction generation ever throws again it falls back to vanilla generation instead of an empty world.
+The map follows the land:
+- Inland lakes are shared between their shores instead of ringing themselves with an unowned border; enclosed water up to a size cap is split along a clean midline that meets at the lake's centre.
+- Small islands under ten tiles join the nearest landmass; chains of small islands that add up to a real landmass (30+ tiles) become a single archipelago region.
+- One-to-six-tile slivers are folded into a neighbouring region or dropped when isolated; an Enable small regions setting keeps them as real, settle-able regions if you prefer.
+- Mountain passes and one-tile land bridges are read as borders, so a region no longer flows through a narrow saddle and spans two places.
+- Regions are rounder and more natural (a relaxed-honeycomb default); the 0.3.0 balanced-cells look and the 0.2.x boxes are still selectable from the World partition algorithm dropdown.
+- One Target region size knob replaces the old min/max sliders; sparse biomes scale up automatically, and a Biome region sizes editor lets you retune any biome.
 
---- Changelog (v0.3.0) - Living Population Model ---
-- New region partitioning: regions are drawn INSIDE the terrain's natural sections - biome, mountains and coasts - then cut into even pieces, so borders follow the land instead of a grid. Every region is guaranteed to be a single connected landmass.
-- Pluggable partition algorithm: pick how the world is cut from a dropdown in mod settings (contain-then-subdivide, or the legacy anchor-Voronoi look), and other mods can register their own algorithm. Each world remembers the algorithm and version it was generated with, so loading an old save never re-cuts its map.
-- Regional demographic inspection: a three-tab region panel (Region / Population / Economy) with a province mini-map, and seven demographic axes - age, sex, xenotype, ideoligion, wealth, education, employment - as world-map overlays and visual bars. Xenotype/ideoligion degrade cleanly without Biotech/Ideology.
-- Faction character: a faction's education, wealth and standing now reflect what it is - raiders read as raiders, an imperial court as an elite - instead of everyone reading the same.
-- Settlements grow over time from in-game birthrates, converging on a tier target without exceeding it.
-- Worldgen performance: two steps that did not scale to the finer partition - Regions and Societies settlement road-linking and outpost seeding at world generation - are out of this release and return reworked in 0.4.0. World generation now logs its total time; measured with all five DLCs and all four companion patches: 24 s at 30% coverage, about 3 minutes at 100% (2,442 regions, 910 settlements).
-- Residence layer: dwellings are modelled separately from raw population, with a rural-to-city occupancy gradient.
-- Population scale: settlement populations are three times larger (cap multiplier default 30, was 10) and a new world starts with its settlements at their comfortable size, so a settled region reads in the hundreds from day one, and the terrain-aware population sprawl is now the one population field: a settlement's people spread over the tiles its sprawl reaches with the total conserved, so the heatmap, tile labels and region totals agree and a city is surrounded by its outskirts instead of a ring of zeros. The density heatmap now runs violet to yellow instead of green to red, so it stands out from the terrain.
-- Map overlays consolidated under a single Regions and Societies menu button.
-- Performance: every region's demographics are precomputed at load, so opening a demographic overlay is instant.
-- Fixed (with thanks to community member 96localk): every generated faction was created hidden - absent from the Factions tab, with no goodwill or leader - and unselected factions could leak into worlds. Factions now generate visible with leaders, only the factions you chose appear, and a one-time repair fixes worlds saved under the bug.
-- Odyssey multi-layer worlds: off-surface world objects (orbital habitats, space sites) are classified and skipped cleanly instead of warning, so regions, demographics and placement stay correct with space factions on the orbit layer.
-- Now compatible with Layered Atmosphere and Orbit: the region-border and capital map overlays are pinned to the surface layer, so LAO's world-render patch no longer null-references on them (previously a "black" world). It is no longer marked incompatible.
+Factions settle with character:
+- Placement weighs a biome's real liveability - movement, disease, settlement weighting - and avoids crowding, so raiders stop homesteading on the ice and boreal and temperate land fill in as expected.
+- Per-faction territory clustering: some nations sprawl into one contiguous hold, others keep a set number of separate footholds, and pirates scatter; new footholds are kept spaced apart.
+- A scattered low-tech faction splits into related kin factions, one per region group, compass-named off the parent and friendly to each other (toggle it off to keep single large factions).
+- A faction that holds at least half a region counts its natural barriers - coasts, rock and mountain ridges - as a secure border.
+
+The Geographic Placement dialog:
+- Set the world up before you generate it: a relative-size share per faction with a live "region count" estimate, a share pie (by faction or by hostility), and a hostility dot per faction. A Basic view fits every faction on one screen; an Advanced view exposes resource weights, placement order, clustering and kin.
+- The region estimate is computed from the real partition model and a calibrated coverage curve, so what you see before generating matches the world you get.
+
+World setup and control:
+- A Societies master toggle disables the entire population, demographics and economy layer for a geography-only game.
+- World generation can seed outposts and holdings, with a World maturity slider from an empty frontier to a fully-built world; companion patches can register their own holding types. A region lock governs settling inside a rival's territory and can be toggled mid-game.
+- Worlds are stamped Worldgen: v0.4.0 and record the settings they were generated with, so regenerating a seed reproduces the same map; existing saves keep their original stamp and are never re-cut.
+
+Performance:
+- World generation's partition step is about 28 times faster: the mountain-pass split now tests only genuine pinch points instead of every tile, dropping a measured world from ~82 seconds to under 3 with an identical map.
+
+Under the hood:
+- Removed the unused Population caps checkbox (its multipliers stay). On new worlds, strict territorial ownership, placement governance and settlement tiers now start off for compatibility.
 
 Source code: https://github.com/Regions-and-societies/Core-RP2
 Steam Workshop: https://steamcommunity.com/sharedfiles/filedetails/?id=3784666526

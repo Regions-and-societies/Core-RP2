@@ -14,8 +14,10 @@ namespace RegionsAndSocieties.Partition
     /// </summary>
     public static class RegionPartitionerRegistry
     {
-        /// <summary>The id of Core's default algorithm (contain-then-subdivide, 0.3.0).</summary>
+        /// <summary>The id of Core's default algorithm (contain-then-subdivide with honeycomb cells, 0.4.0).</summary>
         public const string DefaultAlgorithmId = "contain_subdivide";
+        /// <summary>The id of the packaged 0.3.0 algorithm (contain-then-subdivide with balanced cells).</summary>
+        public const string Legacy030AlgorithmId = "contain_subdivide_030";
         /// <summary>The id of Core's legacy algorithm (anchor-Voronoi boxes, 0.2.x).</summary>
         public const string LegacyAlgorithmId = "anchor_voronoi";
 
@@ -36,6 +38,7 @@ namespace RegionsAndSocieties.Partition
             initialized = true;
 
             Register(new ContainSubdividePartitioner());
+            Register(new ContainSubdivide030Partitioner());
             Register(new AnchorVoronoiPartitioner());
 
             Log.Message("[RegionsAndSocieties] Region partitioners: " + string.Join(", ", partitioners.Select(p => p.AlgorithmId)));

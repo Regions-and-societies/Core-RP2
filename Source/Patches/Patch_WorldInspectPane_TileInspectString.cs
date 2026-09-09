@@ -84,6 +84,19 @@ namespace RegionsAndSocieties.Patches
         private static bool AppendTerritoryInfo(StringBuilder sb, int tileId)
         {
             var regionManager = Find.World.GetComponent<SynapseRegionManager>();
+
+            // Dev-mode tile inspector (#40 debugging): the exact tile id, its region id, and its terrain,
+            // for ANY tile — so a problem tile/region can be named precisely. Shown before the null-guards
+            // so it also reports unassigned/impassable tiles that have no Land province.
+            if (Prefs.DevMode)
+            {
+                int devPid = regionManager != null ? regionManager.GetProvinceId(tileId) : -1;
+                Tile devTile = Find.WorldGrid != null ? Find.WorldGrid[tileId] : null;
+                string biome = devTile != null && devTile.PrimaryBiome != null ? devTile.PrimaryBiome.defName : "?";
+                string hill = devTile != null ? devTile.hilliness.ToString() : "?";
+                sb.AppendLine($"[dev] Tile #{tileId} · Region #{devPid} · {hill} · {biome}");
+            }
+
             if (regionManager == null) return false;
 
             GeographicProvince province = regionManager.GetProvinceForTile(tileId);

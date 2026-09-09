@@ -308,13 +308,13 @@ namespace RegionsAndSocieties.UI
 
             // Prefer a province that has an anchor settlement, so the preview shows the position/faction
             // pattern rather than the terrain-only degrade path.
-            string preview = OutpostSeedingUtility.PreviewArchetypes(province);
+            string preview = HoldingSeedingUtility.PreviewArchetypes(province);
             if (preview.Contains("no anchor") && mgr.Provinces != null)
             {
                 foreach (var p in mgr.Provinces)
                 {
                     if (p == null || p.provinceType != ProvinceType.Land) continue;
-                    string pr = OutpostSeedingUtility.PreviewArchetypes(p);
+                    string pr = HoldingSeedingUtility.PreviewArchetypes(p);
                     if (!pr.Contains("no anchor")) { preview = pr; break; }
                 }
             }
@@ -447,6 +447,24 @@ namespace RegionsAndSocieties.UI
         private static void FactionDemographicsReport()
         {
             Log.Message(RegionDebugReports.FactionDemographicsReport());
+        }
+
+        [DebugAction("Regions and Societies", "R&S: settlement biome distribution (#56)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void SettlementBiomeDistributionReport()
+        {
+            Log.Message(RegionDebugReports.SettlementBiomeDistributionReport());
+        }
+
+        [DebugAction("Regions and Societies", "R&S: placement clustering report (#46)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void PlacementClusteringReport()
+        {
+            Log.Message(RegionDebugReports.PlacementClusteringReport());
+        }
+
+        [DebugAction("Regions and Societies", "R&S: placement share report (#47)", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void PlacementShareReport()
+        {
+            Log.Message(RegionDebugReports.PlacementShareReport());
         }
 
         [DebugAction("Regions and Societies", "R&S: demo cycle falloff model", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]

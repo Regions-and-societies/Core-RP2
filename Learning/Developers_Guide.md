@@ -10,6 +10,9 @@ Contents:
 - [World-object classification queries](#world-object-classification-queries) — ask core what an object is
 - [Loose-binding adapters](#loose-binding-adapters) — reflection profiles for patches without an assembly reference
 - [Holding creators](#holding-creators) — teach core to *build* another mod's holdings
+- [Holding-seeding policies](#holding-seeding-policies) — decide how many holdings to seed at worldgen, and where
+- [Region partition algorithms](#region-partition-algorithms-040) — plug in your own way of cutting the globe into provinces
+- [Region-count estimates](#region-count-estimates-040) — the shared "≈ N regions" maths
 - [Demographic providers](#demographic-providers) — contribute a demographics component to ownership
 - [Territory-claim hook](#territory-claim-hook) — consume the contested-settlement event
 - [Ownership vocabulary](#ownership-vocabulary) — tiers, thresholds and placement rules
@@ -236,6 +239,8 @@ A caution earned by history: a wrong string here costs no error at runtime — i
 
 The write-side mirror of adapters: a **creator** builds a foreign mod's holding (core's worldgen outpost-seeding pass asks it to). Namespace `RegionsAndSocieties.Integration`. Core ships no creators; the VOE compatibility patch contributes the outpost creator.
 
+A creator only knows **how** to build one holding. **How many** to seed and **where** is a separate concern, owned by an [`ISeedingPolicy`](#holding-seeding-policies) — register a creator to make a kind buildable, and (optionally) a policy to tune its density and placement.
+
 ### IHoldingCreator
 
 ```csharp
@@ -304,9 +309,86 @@ HoldingCreatorRegistry.Register(new FrontierOutpostCreator());
 
 ---
 
-## Region partition algorithms (0.3.0)
+## Holding-seeding policies
 
-How the globe is cut into land provinces is an extension point. Namespace `RegionsAndSocieties.Partition`. Core ships two — `contain_subdivide` (the default) and `anchor_voronoi` (the 0.2.x look); a mod contributes its own and it appears in the **World partition algorithm** dropdown in Regions and Societies' settings.
+New in 0.4.0 (#18). World generation can now seed holdings around anchor settlements — a **World maturity** slider scales how built-up a fresh world starts. A *creator* (above) builds one holding; a **seeding policy** decides, per `WorldObjectKind`, *how many* to seed around an anchor and *which archetype/tiles* suit them. The two are kept apart on purpose: the policy is pure, deterministic maths (unit-tested), while the creator does the imperative build. Namespace `RegionsAndSocieties.Integration`.
+
+Core registers one policy (`OutpostSeedingPolicy` for `Outpost`, priority 1000). A kind that has an active creator but no registered policy falls back to a generic `DefaultSeedingPolicy` — so registering only a creator still seeds holdings, at the outpost density, until you supply your own policy.
+
+### ISeedingPolicy
+
+```csharp
+public interface ISeedingPolicy
+{
+    WorldObjectKind Kind { get; }   // the one kind this policy sizes and shapes
+    int Priority { get; }           // lower wins for a kind; a CP policy should sit below Core's 1000
+    bool IsActive { get; }          // mod loaded AND player left the integration on
+
+    int Allowance(SettlementTier anchorTier);          // base count around an anchor, before maturity scaling
+    bool AcceptsTile(TileFeatures features);           // per-tile gate; return false to skip; default true
+    OutpostArchetype SelectArchetype(TileFeatures features); // shape (Outpost only; others return Encampment)
+}
+```
+
+| Member | Type | Meaning |
+|---|---|---|
+| `Kind` | `WorldObjectKind` | The single kind this policy governs. |
+| `Priority` | `int` | Lowest active policy claiming a kind wins. Core's outpost policy is 1000; register lower to override it; the generic default is `int.MaxValue`. |
+| `IsActive` | `bool` | Backing mod loaded and its integration switched on. |
+| `Allowance(anchorTier)` | `int` | The base number to seed around an anchor of that tier, **before** the world-maturity scale. Return 0 (or for a `SettlementTier.None` anchor) to seed none. |
+| `AcceptsTile(features)` | `bool` | Optional suitability gate on top of the driver's terrain/ownership filters. `false` skips the tile. |
+| `SelectArchetype(features)` | `OutpostArchetype` | The shape to build. Only `Outpost` holdings use it; other kinds return `OutpostArchetype.Encampment` and their creator ignores it. |
+
+`TileFeatures` (namespace `RegionsAndSocieties.Sizing`) is a plain struct of the tile facts these methods read — no `Find`, no Unity — so the rule stays pure. The driver fills it from the world:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `hilliness` | `int` | 0 flat, 1 small hills, 2 large hills, 3 mountainous. |
+| `plantDensity` / `treeDensity` / `animalDensity` | `float` | Biome densities, ~0..1. |
+| `mineralsFraction` | `float` | How mineable the tile reads, 0..1. |
+| `coastal` | `bool` | Tile touches water. |
+| `distanceToAnchor` | `float` | Normalised 0 (capital core) → 1 (province edge). |
+| `anchorTier` | `SettlementTier` | The anchoring settlement's tier; `None` means no anchor context (choice degrades to terrain only). |
+| `techLevel` | `int` | Anchor faction's `TechLevel` ordinal (2 Neolithic … 7 Archotech). |
+| `permanentEnemy` | `bool` | Anchor faction is a permanent enemy (pirates/hostiles). |
+
+### SeedingPolicyRegistry
+
+| Member | Signature | Notes |
+|---|---|---|
+| `Register` | `void Register(ISeedingPolicy policy)` | Call from your patch's `Mod` constructor. `null` ignored; the list stays priority-sorted. |
+| `PolicyFor` | `ISeedingPolicy PolicyFor(WorldObjectKind kind)` | The lowest-priority *active* registered policy for the kind, else a cached generic default. Never null; exception-guarded on `Kind`/`IsActive`. |
+| `Policies` | `IReadOnlyList<ISeedingPolicy> Policies { get; }` | The registered set, priority-ordered. |
+| `Initialized` / `Clear` | `bool`, `void` | As on the other registries; `Clear` is for tests and integration toggles. |
+
+The **World maturity** slider is `WorldObjectIntegrationSettings.seedingMaturity` (0..1) — it scales every policy's reported `Allowance` at worldgen (1.0 = each territory's full allowance, a fully-settled world; 0 = an empty frontier), and is stamped per-world so a regenerate reproduces it.
+
+**Worked example** — a patch seeding its own `Camp` kind more sparsely than outposts:
+
+```csharp
+public class FrontierCampPolicy : ISeedingPolicy
+{
+    public WorldObjectKind Kind => WorldObjectKind.Camp;
+    public int Priority => 150;                 // below Core's default (1000)
+    public bool IsActive => true;               // hard-dependent patch: installed == on
+
+    public int Allowance(SettlementTier anchorTier)
+        => anchorTier.IsAtLeast(SettlementTier.Town) ? 1 : 0;   // only larger anchors get a camp
+
+    public bool AcceptsTile(TileFeatures f) => !f.coastal;      // inland camps only
+
+    public OutpostArchetype SelectArchetype(TileFeatures f) => OutpostArchetype.Encampment;
+}
+
+// in the patch's Mod constructor (pair it with a creator that can build Camp):
+SeedingPolicyRegistry.Register(new FrontierCampPolicy());
+```
+
+---
+
+## Region partition algorithms (0.4.0)
+
+How the globe is cut into land provinces is an extension point. Namespace `RegionsAndSocieties.Partition`. Core ships three — `contain_subdivide` (the 0.4.0 default, relaxed-honeycomb cells), `contain_subdivide_030` (the same containers cut into the 0.3.0 balanced box-ish cells), and `anchor_voronoi` (the 0.2.x Chebyshev-box look); a mod contributes its own and it appears in the **World partition algorithm** dropdown in Regions and Societies' settings.
 
 The chosen algorithm's `AlgorithmId` is stamped onto every world it generates, so the setting only affects **new** worlds — an existing save keeps the algorithm it was generated with, and a regenerate reproduces it. If a world's stamped algorithm is not registered (the mod that added it was removed), it falls back to the default.
 
@@ -332,8 +414,8 @@ public interface IRegionPartitioner
 |---|---|---|
 | `Register` | `void Register(IRegionPartitioner p)` | Call from your `Mod` constructor. Duplicate `AlgorithmId` is dropped with a warning. |
 | `Get` | `IRegionPartitioner Get(string algorithmId)` | The match, or the default if the id is unknown (logged). |
-| `All` / `Default` | `IReadOnlyList<IRegionPartitioner> All`, `IRegionPartitioner Default` | The dropdown reads `All`; `Default` is `contain_subdivide`. |
-| `DefaultAlgorithmId` / `LegacyAlgorithmId` | `const string` | `"contain_subdivide"` / `"anchor_voronoi"`. |
+| `All` / `Default` | `IReadOnlyList<IRegionPartitioner> All`, `IRegionPartitioner Default` | The dropdown reads `All` (sorted by `Order`); `Default` is `contain_subdivide`. Both auto-`Initialize()` on first read. |
+| `DefaultAlgorithmId` / `Legacy030AlgorithmId` / `LegacyAlgorithmId` | `const string` | `"contain_subdivide"` / `"contain_subdivide_030"` / `"anchor_voronoi"`. |
 
 **Worked example:**
 
@@ -357,6 +439,35 @@ RegionPartitionerRegistry.Register(new HexGridPartitioner());
 ```
 
 Downstream cleanup (contiguity enforcement, tiny-region merging, ownership) runs on whatever groups you return, so a partitioner only has to produce reasonable land groups — it does not have to be perfect.
+
+---
+
+## Region-count estimates (0.4.0)
+
+New in 0.4.0 (#54). The one place that answers "how many land regions will this world have?" — the placement-settings header and #47's per-faction "share % → ≈ N regions" read the SAME number, so they never disagree. Pure and unit-tested; you pass in a land-tile count and the target region size. Namespace `RegionsAndSocieties.Placement`, class `PlacementEstimates` (all members `static`).
+
+| Member | Signature | Returns |
+|---|---|---|
+| `ExpectedRegionCount` | `int ExpectedRegionCount(int landTiles, int targetSize, float fill)` | ≈ `landTiles / targetSize × fill`, rounded, never negative. |
+| `ExpectedRegionCount` | `int ExpectedRegionCount(int landTiles, int targetSize)` | The estimate at `DefaultFill`. |
+| `ExpectedRegionCountLow` / `ExpectedRegionCountHigh` | `int (int landTiles, int targetSize)` | The ± band ends (`DefaultFill × (1 ∓ FillSpread)`). |
+| `EstimateTotalTiles` | `int EstimateTotalTiles(float coverage)` | Total world tiles for a planet-coverage fraction, interpolated from measured worldgen anchors (RimWorld's coverage→tiles is strongly non-linear). |
+| `EstimateLandTiles` | `int EstimateLandTiles(int totalTiles, float landFraction)` | Land tiles from a total and a land fraction — the pre-generation fallback when no grid exists to count. |
+
+Constants: `DefaultFill` (1.0 — measured actual-regions ÷ raw ratio), `FillSpread` (0.15 — the ± band), `TypicalLandFraction` (0.5 — a rough land fraction for the pre-gen estimate only).
+
+The `fill` factor absorbs what the raw `landTiles / targetSize` ratio misses: biome-size weighting (sparse biomes make fewer, larger regions) and the 0.4.0 post-passes (lakes shared out, islands absorbed, tiny regions dropped). Once a world exists the dialog counts real land tiles; before generation it estimates them from planet size × land fraction.
+
+**Worked example** — a menu showing an expected region count before the player generates a world:
+
+```csharp
+int total = PlacementEstimates.EstimateTotalTiles(planetCoverage);          // e.g. 0.30 → ~119,904
+int land  = PlacementEstimates.EstimateLandTiles(total, PlacementEstimates.TypicalLandFraction);
+int regions    = PlacementEstimates.ExpectedRegionCount(land, targetRegionSize);
+int low        = PlacementEstimates.ExpectedRegionCountLow(land, targetRegionSize);
+int high       = PlacementEstimates.ExpectedRegionCountHigh(land, targetRegionSize);
+// show "≈ {regions} regions ({low}–{high})"
+```
 
 ---
 
@@ -537,7 +648,7 @@ float similarity = RegionDemographicsUtility.AverageNeighborSimilarity(province)
 
 ## Demographic hooks (write side, 0.2.0)
 
-`RegionsAndSocieties.Demographics.DemographicHooks` — the seam a companion mod (a drafting system, a war mod, a storyteller) drives to bend a region's sex ratio over time. Core models the deterministic baseline and owns nothing about drafting or war; skews are sparse per-region overrides, persist through save/load, and decay on the world tick.
+`RegionsAndSocieties.Demographics.DemographicHooks` — the seam a companion mod (a drafting system, a war mod, a storyteller) drives to bend a region's sex ratio over time. Core models the deterministic baseline and owns nothing about drafting or war; skews are sparse per-region overrides, persist through save/load, and decay on the world tick. The signatures below are unchanged since 0.2.0; since 0.4.0 every call is additionally a safe no-op when the **Societies** master toggle (#53) is off (the whole demographics layer is disabled), so you may call them unconditionally.
 
 ```csharp
 // A draft is in progress: shift the female fraction and HOLD it until EndDraft.
@@ -591,8 +702,8 @@ Two public static settings classes. Consumers should read the **composed gates**
 | `EconomyGovernanceActive` | Production modifiers apply. |
 | `MilitaryGovernanceActive` | Adjacency/supply restrictions on military actions apply. |
 | `SettlementTiersActive` | Village→metropolis tiering runs. |
-| `OutpostSeedingActive` | Outpost seeding runs (needs a creator from a patch). Worldgen seeding is deferred to 0.4.0, so the switch is inert in 0.3.0. |
-| `PopulationCapsActive` | The per-tier population-cap model runs. |
+| `OutpostSeedingActive` | Worldgen holding/outpost seeding runs (#18). Live since 0.4.0; needs a creator (and, to tune density/placement, a [seeding policy](#holding-seeding-policies)) from a patch. The **World maturity** amount is the `seedingMaturity` field (0..1), which scales every policy's per-anchor allowance. |
+| `PopulationCapsActive` | The per-tier population-cap model runs. (The player-facing "Population caps" checkbox was removed in 0.4.0, but the gate and its `populationCapMultiplier` remain.) |
 
 Raw fields (`masterEnabled`, `placementGovernance`, ..., `populationCapMultiplier`, `demographicReach`, `demographicFalloff`, `demographicFalloffModel`, `demographicGenerationYears` (how many in-game years a generational sex skew takes to decay; default 15), `logUnknownWorldObjects`) are public and persisted, but flip them only from a settings UI acting for the player.
 

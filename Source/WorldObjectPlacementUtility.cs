@@ -121,7 +121,10 @@ namespace RegionsAndSocieties
                 },
                 ProvincesAdjacent = (a, b) => ProvinceAdjacency.AreAdjacent(regionManager, a, b),
                 IsPlayerControlled = faction => faction is Faction f && playerControlled.Contains(f),
-                ExclusiveRivalAt = (provinceId, faction) => ExclusiveRivalAt(regionManager, provinceId, faction as Faction)
+                ExclusiveRivalAt = (provinceId, faction) => ExclusiveRivalAt(regionManager, provinceId, faction as Faction),
+                // #18: the region lock is a live per-world flag; read it into each snapshot so a mid-game
+                // toggle takes effect on the next evaluation (the snapshot re-caches per tick / object set).
+                RegionLock = regionManager?.EffectiveRegionLock ?? true
             };
 
             _cachedWorld = world;

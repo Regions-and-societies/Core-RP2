@@ -8,7 +8,7 @@ Switch between them with the map mode selector on the world view (the Regions an
 
 ## Geographic Provinces
 
-Draws the province boundaries themselves: the contiguous regions the planet was divided into at world generation.
+Draws the province boundaries themselves: the contiguous regions the planet was divided into at world generation. Their shape follows the **World partition algorithm** in the mod settings — the 0.4.0 honeycomb default (rounded cells that trace a biome's outline), the 0.3.0 balanced-cells look, or the 0.2.x anchor-Voronoi boxes — and reflects the 0.4.0 land corrections: lakes shared between their shores, small islands joined to the mainland, and regions split at mountain passes rather than spanning them.
 
 The tooltip reports what the region contains — its tiles, the factions scoring in it, and its **unclaimed share**. If you want to understand why a tile was refused for settlement, this is the overlay to check first.
 

@@ -22,8 +22,8 @@ namespace RegionsAndSocieties.Partition
         public const float MaxWeight = 20f;
 
         /// <summary>Player overrides by biome <c>defName</c>, populated from the settings sliders. Empty =
-        /// use the built-in defaults.</summary>
-        public static readonly Dictionary<string, float> Overrides = new Dictionary<string, float>();
+        /// use the built-in defaults. Not readonly: the scribe reassigns it on load.</summary>
+        public static Dictionary<string, float> Overrides = new Dictionary<string, float>();
 
         /// <summary>The size multiplier in force for a biome: a player override if one is set, else the
         /// built-in default, clamped to the sane band.</summary>

@@ -126,6 +126,12 @@ namespace RimWorld.Planet
 
 namespace RegionsAndSocieties
 {
+    // #53 gate, stubbed for the type-check (the real one is the Mod subclass, not compiled here).
+    public static class RegionsAndSocietiesMod
+    {
+        public static bool SocietiesEnabled = true;
+    }
+
     public static class PopulationDensityUtility
     {
         public static int GetSettlementPopulation(RimWorld.Planet.Settlement s) { return 42; }

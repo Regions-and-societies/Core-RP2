@@ -2,6 +2,40 @@
 
 Full version history. The mod page and Workshop description show only the latest release; earlier versions are recorded here. Versions before 0.1.0 shipped under the former identity, **RimSynapse - Regions and Territories**, and are kept below as the predecessor's history.
 
+## v0.4.0 - Map & Placement
+
+The world map is redrawn to follow the land, and factions settle it with character. A new-game **Geographic Placement** dialog puts territory shares, clustering and kin in your hands, and every world-shaping knob is now yours to tune.
+
+**The map follows the land**
+- **Inland lakes are shared between their shores (#48).** A lake no longer rings itself with an unowned border; enclosed water up to a size cap is split across the regions around it along a clean midline that meets at the lake's centre, so a shoreline reads as one province's coast rather than a hole in the map.
+- **Small islands join the mainland; archipelagos stand on their own (#49).** An island under ten tiles now attaches to the nearest landmass instead of always spinning off as its own speck. Chains of small islands that add up to a real landmass (30+ tiles) become a single archipelago region.
+- **Tiny slivers are cleaned up (#51).** One-to-six-tile scraps of land are folded into a neighbouring region (a settlement on one goes along), or dropped when truly isolated. A new **Enable small regions** setting keeps them as real, settle-able regions if you prefer (they carry no demographics or economy).
+- **Mountain passes and isthmuses split regions along the terrain (#40).** A region no longer flows through a narrow ridge saddle or a one-tile land bridge and spans two places; the pass is read as a border and the region divides along it.
+- **Rounder, more natural regions.** The default region shape is now a relaxed honeycomb (even, rounded cells that follow a biome's outline) instead of boxy cells. The 0.3.0 balanced-cells look and the 0.2.x anchor-Voronoi boxes are still selectable from the **World partition algorithm** dropdown.
+- **One Target region size knob (#54/#47).** The old min/max region-size sliders are replaced by a single target; sparse biomes (tundra, desert, ice) scale up automatically to make fewer, larger regions. A **Biome region sizes** editor in mod settings lets you retune any biome's weighting.
+
+**Factions settle with character**
+- **Habitability-driven placement (#56).** Factions now weigh a biome's real liveability - movement difficulty, disease, and vanilla settlement weighting - not just plant density, and avoid crowding onto biomes that are already full. Raiders stop homesteading on the ice sheet; boreal and temperate land fill in the way you'd expect.
+- **Per-faction territory clustering (#46).** Each faction has a relative-size setting and a clustering behaviour: some sprawl into one contiguous nation, others hold a set number of separate footholds, and pirates scatter. New footholds are kept spaced apart so a faction reads as distinct clusters, not a smear.
+- **Regional kin sub-factions (#57).** A scattered low-tech faction that ends up in several corners of the world splits into related kin factions, one per region group, compass-named off the parent (e.g. *North* and *Southeast* of the base name) and friendly to each other. Toggle it off if you'd rather keep single large factions.
+- **Ownership earns its walls (#50).** A faction that holds at least half of a region now counts the region's natural barriers - coasts, impassable rock, and mountain ridges - as its secure border, so a nation defined by its geography reads as fully held instead of an open frontier.
+
+**The Geographic Placement dialog (#47/#54)**
+- **Set the world up before you generate it.** The new-game placement dialog gives every faction a relative-size share of the world's regions with a live "≈ N regions" estimate, a share pie chart (viewable by faction or by hostility), and a hostility dot per faction. A Basic view fits every faction on one screen; an Advanced view exposes resource weights, placement order, clustering and kin.
+- **A region estimate that's actually right (#54).** The estimate is computed from the real partition model and a calibrated planet-coverage curve, so the "≈ N regions" you see before generating matches what the world produces.
+
+**World setup and control**
+- **Societies master toggle (#53).** One switch disables the entire population, demographics and economy layer - overlays, panels, growth and all - for players who only want the geography and territory.
+- **Holding-seeding hook and world maturity (#18).** World generation can seed outposts and holdings, with a **World maturity** slider from an empty frontier to a fully-built world, and companion patches can register their own holding types. A **region lock** governs whether factions may settle inside a rival's territory, and it can now be toggled mid-game.
+- **Reproducible worlds.** Worlds are stamped **Worldgen: v0.4.0** and record the partition settings they were generated with, so regenerating a seed reproduces the same map. Existing saves keep their original stamp and are never re-cut.
+
+**Performance**
+- **World generation's partition step is ~28× faster (#60).** The mountain-pass splitting pass was doing an exhaustive search on every tile of every region; it now tests only genuine pinch points. On a measured world the partition dropped from ~82 seconds to under 3, producing an identical map.
+
+**Under the hood**
+- Removed the unused "Population caps" checkbox from mod settings (its population multipliers stay).
+- Default settings tuned for compatibility on new worlds: strict territorial ownership, placement governance and settlement tiers now start **off**.
+
 ## v0.3.2 - Compatibility patch
 
 - **Fixed: world-map frame rate fell away when clicking rapidly between tiles (#44).** The tile information pane ran a full settlement-placement evaluation (every holding, plus a flood fill of the world grid) the instant a tile was selected, so hopping across the map paid that cost on every click. The placement line ("too close to a settlement", "outside supply range", …) is now scheduled instead: it appears once a tile has stayed selected for about a third of a second, and answers are remembered per tile while the world is unchanged, so revisiting a tile is free and a paused world map never re-evaluates. Placement governance itself, and the settle and outpost buttons' own checks, are unchanged.

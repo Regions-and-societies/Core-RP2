@@ -333,7 +333,7 @@ namespace RegionsAndSocieties
                 if (mo != null) majorHoldings = mo.settlementScore + mo.outpostCoverageScore + mo.mostOutpostsScore + mo.demographicScore;
             }
             float selfBorderShare = totalEdges > 0 ? BorderWeight * ((float)selfNeighbourEdges / totalEdges) : 0f;
-            bool ownerHasMajorClaim = majorOwner != null && (majorHoldings + selfBorderShare) >= PlacementRules.LooseOwnershipThreshold;
+            bool ownerHasMajorClaim = majorOwner != null && (majorHoldings + selfBorderShare) >= PlacementRules.BarrierUnlockThreshold;
             int barrierEdges = ownerHasMajorClaim ? Mathf.Max(0, province.naturalBorderEdges) : 0;
             // The owner's secure border: the barriers it has earned (major-claim only) + edges to its own
             // neighbouring territory. NOT the unheld frontier, nor barriers it has not earned — those

@@ -102,6 +102,9 @@ namespace RegionsAndSocieties.UI
         /// tint for ocean/lake/river, and greens/greys for unclaimed or unknown.</summary>
         private static Color ColorForTile(SynapseRegionManager mgr, int tile)
         {
+            // A water tile always reads as water, even after #48 hands an inland lake's tiles to the
+            // surrounding land regions — only the region border crosses the lake, the lake stays blue.
+            if (tile >= 0 && Find.WorldGrid != null && Find.WorldGrid[tile].WaterCovered) return WaterTint;
             GeographicProvince p = mgr?.GetProvinceForTile(tile);
             if (p == null) return Unknown;
             if (p.provinceType != ProvinceType.Land) return WaterTint;

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using RimWorld;
+using RimWorld.Planet;
 using Verse;
 
 namespace RegionsAndSocieties
@@ -35,6 +36,41 @@ namespace RegionsAndSocieties
             }
             treeDensity[biome] = value;
             return value;
+        }
+
+        private static readonly Dictionary<BiomeDef, Placement.BiomeTraits> traits = new Dictionary<BiomeDef, Placement.BiomeTraits>();
+
+        /// <summary>The placement-relevant numbers of a biome (#56), cached per def; a null biome reads
+        /// as neutral, middle-of-the-road land.</summary>
+        public static Placement.BiomeTraits Traits(BiomeDef biome)
+        {
+            if (biome == null) return Placement.BiomeTraits.Neutral;
+            if (traits.TryGetValue(biome, out Placement.BiomeTraits cached)) return cached;
+            var t = new Placement.BiomeTraits
+            {
+                PlantDensity = biome.plantDensity,
+                Forageability = biome.forageability,
+                TreeDensity = TreeDensity(biome),
+                MovementDifficulty = biome.movementDifficulty,
+                DiseaseMtbDays = biome.diseaseMtbDays,
+                SettlementSelectionWeight = biome.settlementSelectionWeight,
+            };
+            traits[biome] = t;
+            return t;
+        }
+
+        /// <summary>Hilliness as the 0..3 class the placement rules read: flat, small hills, large hills,
+        /// mountainous. Impassable is never a placement candidate and reads as mountainous.</summary>
+        public static int HillClass(Hilliness hilliness)
+        {
+            switch (hilliness)
+            {
+                case Hilliness.SmallHills: return 1;
+                case Hilliness.LargeHills: return 2;
+                case Hilliness.Mountainous: return 3;
+                case Hilliness.Impassable: return 3;
+                default: return 0;
+            }
         }
     }
 }

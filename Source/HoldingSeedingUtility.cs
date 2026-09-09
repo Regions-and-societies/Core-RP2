@@ -4,6 +4,7 @@ using RimWorld;
 using RimWorld.Planet;
 using RegionsAndSocieties.Economy;
 using RegionsAndSocieties.Integration;
+using RegionsAndSocieties.Placement;
 using RegionsAndSocieties.Sizing;
 using UnityEngine;
 using Verse;
@@ -14,7 +15,7 @@ namespace RegionsAndSocieties
     /// The outcome of a seeding pass, structured so the debug report and the Tier-2 tests read the
     /// same numbers rather than parsing a log line.
     /// </summary>
-    public class OutpostSeedingResult
+    public class HoldingSeedingResult
     {
         /// <summary>Non-null when the pass declined to run at all, naming why (a guard, not a failure).</summary>
         public string guardReason;
@@ -25,13 +26,13 @@ namespace RegionsAndSocieties
         public string ToReport()
         {
             var sb = new StringBuilder();
-            sb.AppendLine("=== R&T outpost seeding ===");
+            sb.AppendLine("=== R&T holding seeding (#18) ===");
             if (guardReason != null)
             {
                 sb.AppendLine("did not run: " + guardReason);
                 return sb.ToString();
             }
-            sb.AppendLine($"anchored provinces: {provincesWithAnchor}    outposts placed: {placed}");
+            sb.AppendLine($"anchored provinces: {provincesWithAnchor}    holdings placed: {placed}");
             foreach (string line in lines) sb.AppendLine("  " + line);
             if (lines.Count == 0) sb.AppendLine("  (nothing to place — every territory already at its allowance)");
             return sb.ToString();
@@ -39,15 +40,23 @@ namespace RegionsAndSocieties
     }
 
     /// <summary>
-    /// Seeds outposts around settlements at world generation, up to each territory's tier-based
-    /// allowance (0.8, #56 reframed onto tiers). The live-game facade: it photographs the world and
-    /// defers every judgement to a pure rule — <see cref="Sizing.SettlementSizeUtility.TierOf"/> for
-    /// the tier, <see cref="Sizing.OutpostAllowanceRules"/> for the count,
-    /// <see cref="Sizing.OutpostArchetypeRules"/> for the type — then asks the
-    /// <see cref="HoldingCreatorRegistry"/> to build the object, so it never names a foreign mod type.
+    /// Seeds holdings of ANY registered kind (outposts, camps, military installations) around settlements at
+    /// world generation, up to each territory's per-kind allowance scaled by world maturity (#18). The
+    /// universal hook the compatibility mods plug into: it photographs the world, defers the count and shape
+    /// to a registered <see cref="ISeedingPolicy"/> (Core ships the Outpost policy; a CP mod registers its
+    /// own for its kinds) and the build to an <see cref="IHoldingCreator"/>, so it never names a foreign mod
+    /// type. Kind-agnostic — nothing here is outpost-specific except the <see cref="PreviewArchetypes"/>
+    /// tuning aid.
     /// </summary>
-    public static class OutpostSeedingUtility
+    public static class HoldingSeedingUtility
     {
+        /// <summary>The territorial kinds R&amp;S will seed (Settlement is placed by faction generation, not
+        /// seeded). A kind is seeded only when a creator can build it and a policy sizes it.</summary>
+        private static readonly WorldObjectKind[] SeedableKinds =
+        {
+            WorldObjectKind.Outpost, WorldObjectKind.Camp, WorldObjectKind.Military
+        };
+
         private struct Anchor
         {
             public Faction faction;
@@ -55,23 +64,13 @@ namespace RegionsAndSocieties
             public int tile;   // the anchor settlement's tile, for distance-to-anchor (#18)
         }
 
-        public static OutpostSeedingResult SeedOutposts()
+        public static HoldingSeedingResult SeedHoldings()
         {
-            var result = new OutpostSeedingResult();
+            var result = new HoldingSeedingResult();
 
-            if (!WorldObjectIntegrationSettings.OutpostSeedingActive)
-            {
-                result.guardReason = "outpost seeding is switched off";
-                return result;
-            }
             if (!WorldObjectPlacementUtility.StrictOwnershipActive())
             {
                 result.guardReason = "compatibility mode (this world was not generated with R&T)";
-                return result;
-            }
-            if (!HoldingCreatorRegistry.AnyActiveFor(WorldObjectKind.Outpost))
-            {
-                result.guardReason = "no active outpost creator (Vanilla Outposts Expanded not installed or its integration is off)";
                 return result;
             }
 
@@ -81,12 +80,37 @@ namespace RegionsAndSocieties
                 result.guardReason = "no regions generated";
                 return result;
             }
+            if (!mgr.EffectiveHoldingSeedingEnabled)
+            {
+                result.guardReason = "holding seeding is switched off";
+                return result;
+            }
 
-            // One pass over world objects: record every occupied tile, the highest-tier settlement
-            // anchoring each province, and how many outposts each province already holds.
+            float maturity = mgr.EffectiveSeedingMaturity;
+            if (maturity <= 0f)
+            {
+                result.guardReason = "world maturity is 0 (seed nothing)";
+                return result;
+            }
+
+            // Which kinds actually have someone to build them this game?
+            var kinds = new List<WorldObjectKind>();
+            for (int i = 0; i < SeedableKinds.Length; i++)
+                if (HoldingCreatorRegistry.AnyActiveFor(SeedableKinds[i])) kinds.Add(SeedableKinds[i]);
+            if (kinds.Count == 0)
+            {
+                result.guardReason = "no active holding creator (no compatibility mod is registered to build seedable objects)";
+                return result;
+            }
+
+            // Stamp maturity + enable so a regenerate reproduces this buildout.
+            mgr.ResolveSeedingInputs();
+
+            // One pass over world objects: record every occupied tile, the highest-tier settlement anchoring
+            // each province, and how many holdings of each kind each province already holds.
             var occupied = new HashSet<int>();
             var anchors = new Dictionary<int, Anchor>();
-            var outpostCounts = new Dictionary<int, int>();
+            var existingByProvince = new Dictionary<int, int[]>();   // pid -> count indexed by (int)kind
 
             List<WorldObject> all = Find.WorldObjects.AllWorldObjects;
             for (int i = 0; i < all.Count; i++)
@@ -108,11 +132,27 @@ namespace RegionsAndSocieties
                         anchors[pid] = new Anchor { faction = obj.Faction, tier = tier, tile = tileId };
                     }
                 }
-                if (kind == WorldObjectKind.Outpost)
+                if (kind.IsTerritorial() && kind != WorldObjectKind.Settlement)
                 {
-                    outpostCounts.TryGetValue(pid, out int c);
-                    outpostCounts[pid] = c + 1;
+                    if (!existingByProvince.TryGetValue(pid, out int[] counts))
+                    {
+                        counts = new int[8];
+                        existingByProvince[pid] = counts;
+                    }
+                    int k = (int)kind;
+                    if (k >= 0 && k < counts.Length) counts[k]++;
                 }
+            }
+
+            // #38 perf: build the placement snapshot ONCE for the whole pass instead of letting the cached
+            // snapshot rebuild every time a created holding changes the world-object count (the walk that
+            // once ground worldgen to minutes). Each placement is appended to the snapshot's holdings so the
+            // separation rule still sees it, without re-walking ownership.
+            PlacementWorld snapshot = WorldObjectPlacementUtility.BuildWorld();
+            if (snapshot == null)
+            {
+                result.guardReason = "no placement snapshot";
+                return result;
             }
 
             foreach (KeyValuePair<int, Anchor> kv in anchors)
@@ -123,34 +163,84 @@ namespace RegionsAndSocieties
 
                 result.provincesWithAnchor++;
 
-                outpostCounts.TryGetValue(pid, out int existing);
-                int remaining = OutpostAllowanceRules.RemainingAllowance(anchor.tier, existing);
-                if (remaining <= 0) continue;
-
                 GeographicProvince province = mgr.GetProvince(pid);
                 if (province?.tiles == null) continue;
 
-                var chosen = new List<OutpostArchetype>();
-                int placedHere = PlaceInProvince(province, anchor, remaining, occupied, result, chosen);
-                if (placedHere > 0)
+                existingByProvince.TryGetValue(pid, out int[] existingCounts);
+                float radius = ProvinceRadius(Find.WorldGrid, anchor.tile, province.tiles);
+
+                for (int ki = 0; ki < kinds.Count; ki++)
                 {
-                    result.lines.Add($"province {pid}: {anchor.faction.Name} [{anchor.tier.LabelCapitalized()}] "
-                        + $"had {existing}/{OutpostAllowanceRules.OutpostAllowance(anchor.tier)}, placed {placedHere} "
-                        + $"({ArchetypeHistogram(chosen)})");
+                    WorldObjectKind kind = kinds[ki];
+                    ISeedingPolicy policy = SeedingPolicyRegistry.PolicyFor(kind);
+                    if (policy == null || !policy.IsActive) continue;
+
+                    int baseAllow = policy.Allowance(anchor.tier);
+                    int allow = SeedingMaturityRules.ScaleAllowance(baseAllow, maturity);
+                    int existing = existingCounts != null ? existingCounts[(int)kind] : 0;
+                    int remaining = allow - existing;
+                    if (remaining <= 0) continue;
+
+                    var chosen = new List<OutpostArchetype>();
+                    int placedHere = PlaceInProvince(kind, policy, province, anchor, remaining, occupied, snapshot, radius, result, chosen);
+                    if (placedHere > 0)
+                    {
+                        result.lines.Add($"province {pid}: {anchor.faction.Name} [{anchor.tier.LabelCapitalized()}] "
+                            + $"{kind} {existing}+{placedHere}/{allow} ({ArchetypeHistogram(chosen)})");
+                    }
                 }
             }
 
-            // The seeded outposts are population sources; drop the density cache so their propagation
+            // The seeded holdings are population sources; drop the density cache so their propagation
             // replaces the phantom concentration the empty peak used to read as (#56).
             PopulationDensityUtility.MarkCacheDirty();
             return result;
         }
 
+        private static int PlaceInProvince(WorldObjectKind kind, ISeedingPolicy policy, GeographicProvince province,
+            Anchor anchor, int remaining, HashSet<int> occupied, PlacementWorld snapshot, float radius,
+            HoldingSeedingResult result, List<OutpostArchetype> chosen)
+        {
+            int placed = 0;
+            WorldGrid grid = Find.WorldGrid;
+
+            for (int t = 0; t < province.tiles.Count && placed < remaining; t++)
+            {
+                int tileId = province.tiles[t];
+                if (occupied.Contains(tileId)) continue;
+
+                Tile tile = grid[tileId];
+                if (tile == null || tile.WaterCovered || tile.hilliness == Hilliness.Impassable) continue;
+                if (tile.PrimaryBiome != null && tile.PrimaryBiome.impassable) continue;
+
+                TileFeatures features = BuildFeatures(province, tileId, tile, anchor, grid, radius);
+                if (!policy.AcceptsTile(features)) continue;
+
+                // The full placement rule chain — separation, region lock, supply range, foothold —
+                // evaluated against the one held snapshot so a whole province's seeding pays the ownership
+                // walk once, not once per created object.
+                if (!PlacementEvaluator.Evaluate(snapshot, tileId, anchor.faction, kind).Allowed) continue;
+
+                OutpostArchetype archetype = policy.SelectArchetype(features);
+                if (HoldingCreatorRegistry.TryCreate(kind, archetype, anchor.faction, tileId, out WorldObject created)
+                    && created != null)
+                {
+                    occupied.Add(tileId);
+                    snapshot.Holdings.Add(new PlacementHolding(tileId, kind, anchor.faction));
+                    chosen.Add(archetype);
+                    placed++;
+                    result.placed++;
+                }
+            }
+
+            return placed;
+        }
+
         /// <summary>
         /// #18 tuning/validation: for a province, resolve its anchor and report which archetype the scorer
         /// would pick for each habitable candidate tile — WITHOUT placing anything, so it works with no
-        /// outpost creator (VOE) installed. This is how the position/faction-aware choice is eyeballed and
-        /// tuned before VOE-CP maps the archetypes onto concrete defs.
+        /// outpost creator installed. This is how the position/faction-aware choice is eyeballed and tuned
+        /// before a CP mod maps the archetypes onto concrete defs.
         /// </summary>
         public static string PreviewArchetypes(GeographicProvince province)
         {
@@ -199,42 +289,6 @@ namespace RegionsAndSocieties
             foreach (KeyValuePair<OutpostArchetype, int> kv in counts)
                 sb.AppendLine($"  {kv.Key}: {kv.Value}");
             return sb.ToString().TrimEnd();
-        }
-
-        private static int PlaceInProvince(GeographicProvince province, Anchor anchor, int remaining, HashSet<int> occupied, OutpostSeedingResult result, List<OutpostArchetype> chosen)
-        {
-            int placed = 0;
-            WorldGrid grid = Find.WorldGrid;
-            float radius = ProvinceRadius(grid, anchor.tile, province.tiles);   // distance-to-anchor normaliser (#18)
-
-            for (int t = 0; t < province.tiles.Count && placed < remaining; t++)
-            {
-                int tileId = province.tiles[t];
-                if (occupied.Contains(tileId)) continue;
-
-                Tile tile = grid[tileId];
-                if (tile == null || tile.WaterCovered || tile.hilliness == Hilliness.Impassable) continue;
-                if (tile.PrimaryBiome != null && tile.PrimaryBiome.impassable) continue;
-
-                // The full placement rule chain — separation, supply range, foothold. Territory is the
-                // anchor's own, so the ownership check passes; separation is what spreads the outposts.
-                if (!WorldObjectPlacementUtility.CanPlaceAt(tileId, anchor.faction, WorldObjectKind.Outpost, out _))
-                {
-                    continue;
-                }
-
-                OutpostArchetype archetype = OutpostArchetypeRules.Choose(BuildFeatures(province, tileId, tile, anchor, grid, radius));
-                if (HoldingCreatorRegistry.TryCreate(WorldObjectKind.Outpost, archetype, anchor.faction, tileId, out WorldObject created)
-                    && created != null)
-                {
-                    occupied.Add(tileId);
-                    chosen.Add(archetype);
-                    placed++;
-                    result.placed++;
-                }
-            }
-
-            return placed;
         }
 
         /// <summary>The province's reach from its anchor: the largest anchor→tile great-circle angle, used

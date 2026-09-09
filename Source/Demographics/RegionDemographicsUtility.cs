@@ -296,8 +296,13 @@ namespace RegionsAndSocieties.Demographics
         /// <summary>The aggregated makeup of a region, cached. Recomputed when populations/objects change.</summary>
         public static RegionDemographics ForRegion(GeographicProvince province)
         {
+            // #53: Societies off — no demographics are modelled; every region reads empty.
+            if (!RegionsAndSocietiesMod.SocietiesEnabled) return new RegionDemographics();
             EnsureFresh();
             if (province?.tiles == null || province.tiles.Count == 0) return new RegionDemographics();
+            // #51: a small region kept only via the "enable small regions" option earns no regional
+            // benefits — it is too small to sustain a society, so it reads as empty demographics.
+            if (province.benefitsSuppressed) return new RegionDemographics();
             // Only land has demographics. Skipping water avoids aggregating the (now real, ~50k-tile)
             // ocean province — an O(tiles × settlement sources) walk that would freeze on first read and
             // report a fabricated ocean population/age/wealth (#20).
@@ -320,6 +325,7 @@ namespace RegionsAndSocieties.Demographics
         /// </summary>
         public static void WarmAllRegions(SynapseRegionManager manager)
         {
+            if (!RegionsAndSocietiesMod.SocietiesEnabled) return;   // #53: nothing to warm when Societies is off
             if (manager == null) return;
             var provinces = manager.Provinces;
             if (provinces == null) return;
@@ -798,6 +804,7 @@ namespace RegionsAndSocieties.Demographics
         /// </summary>
         public static RegionDemographics ForFaction(Faction faction)
         {
+            if (!RegionsAndSocietiesMod.SocietiesEnabled) return new RegionDemographics();   // #53
             EnsureFresh();
             if (faction == null) return new RegionDemographics();
             if (factionCache.TryGetValue(faction, out RegionDemographics cached)) return cached;

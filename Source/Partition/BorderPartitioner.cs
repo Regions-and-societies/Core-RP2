@@ -28,9 +28,19 @@ namespace RegionsAndSocieties.Partition
         private const float WoodedTreeDensity = 0.25f;
         private const float ThickTreeDensity = 0.6f;
 
-        // Master switch for the pass-neck feature (#20). Off until a selective pass rule replaces the
-        // over-firing opposite-sides primitive.
+        // Master switch for the pass-neck feature in the (unused) border-first fill (#20). Off until a
+        // selective pass rule replaces the over-firing opposite-sides primitive.
         private const bool EnableNeckDetection = false;
+
+        // #40: split a region across a mountain ridge. The contain-subdivide core morphology treats only
+        // claimed water/impassable tiles and biome edges as walls, so the passable Mountainous saddles
+        // between a range's impassable peaks read as interior and the region flows through them, spanning
+        // the range (region 133 / Mount Zocrouño / regions 402+309 repro). When on, MarkRidgeBarriers walls
+        // the passable Mountainous tiles that belong to a peaked ridge (a high-ground component containing
+        // an impassable peak), turning the dotted line of peaks into a continuous barrier so the region
+        // splits along it; those tiles drape back to the two sides (2c), no hole. A pure-Mountainous ridge
+        // with no peak is left interior (a region may flow over it), which keeps the rule off lone hills.
+        private const bool SplitMountainPasses = true;
 
         /// <summary>
         /// Partition the unclaimed land of the world into province tile-groups. Water, ocean and lake
@@ -169,7 +179,7 @@ namespace RegionsAndSocieties.Partition
         /// subdivision is scoped per container (no whole-grid pass each). Downstream MergeTinyDomains still
         /// cleans up sub-minimum shards, biome- and barrier-aware.</para>
         /// </summary>
-        public static List<List<int>> PartitionContainSubdivide(int[] tileToProvinceId, int minRegionTiles, int maxRegionTiles)
+        public static List<List<int>> PartitionContainSubdivide(int[] tileToProvinceId, int minRegionTiles, int maxRegionTiles, bool honeycomb = true)
         {
             var result = new List<List<int>>();
             WorldGrid grid = Find.WorldGrid;
@@ -198,6 +208,26 @@ namespace RegionsAndSocieties.Partition
                 interior[t] = true;
             }
 
+            // Pass-neck detection (#40): flag the low saddle tiles that sit in a mountain pass — pinched
+            // between high ground (LargeHills+) or hard walls on OPPOSING sides — so the core morphology
+            // below treats them as container borders. Without this a low pass between two passable
+            // Mountainous ridges is plain interior and the region spans it (region 133).
+            bool[] isNeck;
+            if (SplitMountainPasses)
+            {
+                var signals = new TileSignal[total];
+                var biomeIds = new Dictionary<BiomeDef, int>();
+                for (int t = 0; t < total; t++) signals[t] = Classify(grid, t, biomeIds);
+                isNeck = MarkRidgeBarriers(grid, interior, signals, total);
+                int neckCount = 0;
+                for (int t = 0; t < total; t++) if (isNeck[t]) neckCount++;
+                Log.Message($"[RegionsAndSocieties] Contain-subdivide: {neckCount} mountain-pass neck tile(s) walled as borders (#40).");
+            }
+            else
+            {
+                isNeck = new bool[total];
+            }
+
             // Phase 2 (CONTAIN): flood the interior into containers bounded by biome edges AND natural
             // barriers, with mountain passes treated as boundaries. Done in three morphological steps:
             var neigh = new List<PlanetTile>();
@@ -212,6 +242,7 @@ namespace RegionsAndSocieties.Partition
             for (int t = 0; t < total; t++)
             {
                 if (!interior[t]) continue;
+                if (isNeck[t]) { core[t] = false; continue; }   // #40: a pass saddle is a border, never a core
                 bool isCore = true;
                 BiomeDef tb = biomeOf[t];
                 grid.GetTileNeighbors(t, neigh);
@@ -219,6 +250,7 @@ namespace RegionsAndSocieties.Partition
                 {
                     int n = neigh[i].tileId;
                     if (n < 0 || n >= total || tileToProvinceId[n] >= 0) { isCore = false; break; }   // touches a wall
+                    if (isNeck[n]) { isCore = false; break; }                                         // #40: touches a pass-neck border
                     if (interior[n] && biomeOf[n] != tb) { isCore = false; break; }                    // touches a biome edge
                 }
                 core[t] = isCore;
@@ -274,14 +306,26 @@ namespace RegionsAndSocieties.Partition
                 }
             }
 
-            // Phase 3 (SUBDIVIDE): cut each container into appropriately sized squares. Target size is
+            // Phase 2.7 (#40): split any container pinched to a one-tile waist between two substantial lobes
+            // BEFORE it is subdivided — the geometric "narrow pass" cut (e.g. region 383's pass at tile
+            // 15193). Done on the container, so the border falls exactly on the neck and each side then
+            // subdivides on its own, rather than drawing a region and re-cutting it afterward.
+            int containersBeforeNecks = containers.Count;
+            containers = SplitContainersAtNecks(grid, containers, neigh);
+            if (containers.Count != containersBeforeNecks)
+                Log.Message($"[RegionsAndSocieties] Narrow-neck split (#40): {containers.Count - containersBeforeNecks} container(s) added by cutting one-tile passes.");
+
+            // Phase 3 (SUBDIVIDE): cut each container into appropriately sized regions. Target size is
             // baseMax × the biome's size weight (temperate ~1×, tundra ~2×, desert ~3×, ice ~10×), so a
-            // sparse biome makes fewer, larger squares. A container at or under its target stays one region
-            // (a small biome patch is kept whole); a larger one splits into ~ceil(size/target) square
-            // Chebyshev cells, the fill confined to the container so no square leaks past a barrier.
+            // sparse biome makes fewer, larger regions. A container at or under its target stays one region
+            // (a small biome patch is kept whole); a larger one splits into ~ceil(size/target) cells. The
+            // 0.4.0 algorithm uses the relaxed-honeycomb subdivision (a centroidal Voronoi / Lloyd that
+            // fills the biome with even rounded cells following its shape); the packaged 0.3.0 algorithm
+            // keeps its balanced Chebyshev-ish cells (honeycomb == false). Either fill is confined to the
+            // container so no cell leaks past a barrier.
             var regionOf = new int[total];
             for (int i = 0; i < total; i++) regionOf[i] = -1;
-            var owner = new int[total];
+            var owner = new int[total];        // scratch for the 0.3.0 balanced fill
             var cost = new float[total];
             var set = new HashSet<int>();
             foreach (var container in containers)
@@ -290,7 +334,9 @@ namespace RegionsAndSocieties.Partition
                 float w = BiomeRegionWeights.Weight(biome);
                 int target = System.Math.Max(1, (int)System.Math.Round(baseMax * w));
                 if (container.Count <= target) { AddRegion(result, regionOf, container); continue; }
-                var cells = BalancedCellsScoped(grid, container, target, owner, cost, set, neigh);
+                var cells = honeycomb
+                    ? HoneycombCells(grid, container, target, neigh)
+                    : BalancedCellsScoped(grid, container, target, owner, cost, set, neigh);
                 if (cells.Count == 0) { AddRegion(result, regionOf, container); continue; }
                 foreach (var g in cells) AddRegion(result, regionOf, g);
             }
@@ -433,6 +479,107 @@ namespace RegionsAndSocieties.Partition
             }
             foreach (var g in groups) if (g.Count > 0) result.Add(g);
             return result;
+        }
+
+        /// <summary>
+        /// Divide a container into k even HONEYCOMB cells (#40 follow-up): a centroidal Voronoi built by
+        /// Lloyd relaxation — spread k seeds by farthest-point, assign every tile to the nearest seed by
+        /// geodesic (hop) distance, move each seed to its cell's centre, repeat a few times. The cells come
+        /// out as rounded, near-equal-area hexagons that tile the biome and follow its silhouette, without
+        /// the ragged edges the capacity-capped balanced fill can leave. Robust on any biome shape.
+        /// </summary>
+        private static List<List<int>> HoneycombCells(WorldGrid grid, List<int> tiles, int target, List<PlanetTile> nb)
+        {
+            var result = new List<List<int>>();
+            int count = tiles.Count;
+            if (count == 0) return result;
+            int k = System.Math.Max(1, (int)System.Math.Ceiling(count / (double)target));
+            var sorted = new List<int>(tiles); sorted.Sort();
+            if (k <= 1) { result.Add(sorted); return result; }
+            var set = new HashSet<int>(sorted);
+
+            // Initial seeds: farthest-point spread (running min-distance, O(count*k)).
+            var dist = new Dictionary<int, float>(count);
+            foreach (int t in sorted) dist[t] = float.PositiveInfinity;
+            var seeds = new List<int> { sorted[0] };
+            int newest = sorted[0];
+            while (seeds.Count < k)
+            {
+                int best = -1; float bestD = -1f;
+                foreach (int t in sorted)
+                {
+                    float dd = grid.ApproxDistanceInTiles(t, newest);
+                    if (dd < dist[t]) dist[t] = dd;
+                    if (dist[t] > bestD) { bestD = dist[t]; best = t; }
+                }
+                if (best < 0 || dist[best] <= 0f) break;
+                seeds.Add(best); newest = best;
+            }
+
+            List<int>[] groups = null;
+            for (int iter = 0; iter < 4; iter++)
+            {
+                groups = VoronoiBySeed(grid, sorted, set, seeds, nb);   // nearest-seed multi-source BFS
+                if (iter == 3) break;
+                // Relax: move each seed to the tile nearest its cell's average position.
+                var moved = new List<int>(seeds.Count);
+                bool changed = false;
+                for (int g = 0; g < groups.Length; g++)
+                {
+                    var cell = groups[g];
+                    if (cell.Count == 0) { moved.Add(seeds[g]); continue; }
+                    UnityEngine.Vector3 cc = UnityEngine.Vector3.zero;
+                    foreach (int t in cell) cc += grid.GetTileCenter(t);
+                    cc /= cell.Count;
+                    int nearest = cell[0]; float nd = float.PositiveInfinity;
+                    foreach (int t in cell)
+                    {
+                        float dd = (grid.GetTileCenter(t) - cc).sqrMagnitude;
+                        if (dd < nd) { nd = dd; nearest = t; }
+                    }
+                    if (nearest != seeds[g]) changed = true;
+                    moved.Add(nearest);
+                }
+                seeds = moved;
+                if (!changed) { groups = VoronoiBySeed(grid, sorted, set, seeds, nb); break; }
+            }
+
+            foreach (var g in groups) if (g.Count > 0) result.Add(g);
+            return result;
+        }
+
+        /// <summary>Assign every tile in <paramref name="sorted"/> to the nearest seed by an uncapped
+        /// simultaneous multi-source BFS (hop distance), so each cell is a contiguous geodesic-Voronoi
+        /// region. Returns one tile list per seed (some may be empty).</summary>
+        private static List<int>[] VoronoiBySeed(WorldGrid grid, List<int> sorted, HashSet<int> set,
+            List<int> seeds, List<PlanetTile> nb)
+        {
+            var owner = new Dictionary<int, int>(sorted.Count);
+            var q = new Queue<int>();
+            for (int s = 0; s < seeds.Count; s++)
+            {
+                if (!owner.ContainsKey(seeds[s])) { owner[seeds[s]] = s; q.Enqueue(seeds[s]); }
+            }
+            while (q.Count > 0)
+            {
+                int cur = q.Dequeue();
+                int o = owner[cur];
+                nb.Clear();
+                grid.GetTileNeighbors(cur, nb);
+                for (int i = 0; i < nb.Count; i++)
+                {
+                    int nid = nb[i].tileId;
+                    if (!set.Contains(nid) || owner.ContainsKey(nid)) continue;
+                    owner[nid] = o; q.Enqueue(nid);
+                }
+            }
+            var groups = new List<int>[seeds.Count];
+            for (int i = 0; i < seeds.Count; i++) groups[i] = new List<int>();
+            foreach (int t in sorted)
+            {
+                int o; if (owner.TryGetValue(t, out o)) groups[o].Add(t); else groups[0].Add(t);
+            }
+            return groups;
         }
 
         // Small surcharges (distance-dominant) that let a border SNAP onto a nearby biome / forest edge
@@ -598,25 +745,278 @@ namespace RegionsAndSocieties.Partition
             // Any neck tile still unplaced (ringed only by walls/necks) is left for AbsorbEnclosedGaps.
         }
 
-        // Pass-neck detection. K=3 tiles matches the agreed "within two or three tiles of the next
-        // border"; the dot cutoff means the two flanking walls point more than ~105 degrees apart, i.e.
-        // they pinch the tile from genuinely opposing sides rather than lying on a single flank. A tile
-        // counts as a flanking "wall" if it is a hard border (water / impassable) OR high ground
-        // (LargeHills+) — because a RimWorld mountain range is mostly PASSABLE Mountainous tiles, so a
-        // pass is a low saddle between high ground, not between impassable peaks.
-        private const int NeckRadius = 3;
-        private const float NeckOppositeDot = -0.25f;
-        private const int NeckWallHillClass = 2;   // LargeHills and above flank a pass
-        private const int NeckLowHillClass = 1;    // only Flat / SmallHills tiles can BE a saddle
+        /// <summary>A container narrower than twice this can't split into two substantial lobes, and a
+        /// lobe below it is a protrusion, not a real half — so a neck only cuts when BOTH sides clear it.</summary>
+        private const int NarrowNeckMinLobe = 15;
 
         /// <summary>
-        /// Flag low saddle tiles pinched between high ground / hard walls on opposite sides — mountain
-        /// passes and isthmuses (#20). Only a low tile (Flat/SmallHills) is a candidate; a bounded BFS
-        /// (depth <see cref="NeckRadius"/>, travelling only over other low land) collects the bearings
-        /// to any flanking wall — water, impassable, or high ground — it reaches, and if two bearings
-        /// oppose each other the tile sits in a neck and becomes an extension of the border. High ground
-        /// on only one flank (a foothill where a plain meets a range) is never flagged, so a region
-        /// still flows up into the mountains; a plateau interior is excluded because it is not low.
+        /// Split each container at a NARROW NECK (#40): a one-tile waist (an articulation tile) whose
+        /// removal separates the container into two substantial lobes. A container pinched to a single tile
+        /// between two bodies — a mountain pass, an isthmus, a land dumbbell — is two places joined by a
+        /// thread, and the thread is the border. Terrain-free: the pinch is in the container's own shape,
+        /// however it arose (impassable peaks squeezing a corridor, a coast, a biome waist). Runs BEFORE the
+        /// subdivision so each side is drawn and subdivided on its own. Both halves are re-examined so a
+        /// multi-waisted container splits fully.
+        /// </summary>
+        private static List<List<int>> SplitContainersAtNecks(WorldGrid grid, List<List<int>> containers, List<PlanetTile> nb)
+        {
+            var floodNb = new List<PlanetTile>();
+            var result = new List<List<int>>();
+            var work = new List<List<int>>(containers);
+            int guard = 0;
+            int wi = 0;
+            for (; wi < work.Count && guard < 20000; wi++)
+            {
+                guard++;
+                var container = work[wi];
+                if (container.Count < 2 * NarrowNeckMinLobe) { result.Add(container); continue; }
+                var members = new HashSet<int>(container);
+
+                // The only tiles whose removal can split a CONNECTED container are its cut vertices
+                // (articulation points). One Tarjan pass (O(V+E)) finds them all, so the O(V) flood
+                // below runs only on real candidates instead of on every tile — an O(V^2*logV) -> ~O(V+E)
+                // win on the large single-biome containers, with an identical result: a non-cut tile
+                // would flood to comps.Count < 2 and be skipped anyway. A disconnected piece (a rare
+                // leftover of a 3+-way cut, where every tile trivially "separates" the standing lobes)
+                // keeps the exhaustive scan, so its behaviour is unchanged. (#60)
+                var cutVertices = ArticulationPoints(grid, members, out int componentCount);
+                bool gateOnCuts = componentCount == 1;
+
+                int neck = -1;
+                List<int> keep = null, spin = null;
+                foreach (int t in container)
+                {
+                    // A waist tile has in-container neighbours on two sides but is not fully surrounded:
+                    // 2-5 of its 6 neighbours in the container. The flood-test below is the real check.
+                    nb.Clear();
+                    grid.GetTileNeighbors(t, nb);
+                    int same = 0;
+                    for (int i = 0; i < nb.Count; i++) if (members.Contains(nb[i].tileId)) same++;
+                    if (same < 2 || same > 5) continue;
+                    if (gateOnCuts && !cutVertices.Contains(t)) continue;   // #60: only a cut vertex can split a connected container
+
+                    var comps = FloodComponentsExcluding(grid, members, t, floodNb);
+                    if (comps.Count < 2) continue;
+                    comps.Sort((a, b) => b.Count.CompareTo(a.Count));
+                    if (comps[1].Count < NarrowNeckMinLobe) continue;
+
+                    neck = t;
+                    keep = comps[0];
+                    spin = new List<int>();
+                    for (int c = 1; c < comps.Count; c++) spin.AddRange(comps[c]);
+                    break;
+                }
+                if (neck < 0) { result.Add(container); continue; }
+
+                keep.Add(neck);           // the neck joins the larger lobe
+                work.Add(keep);           // re-examine both halves for further necks
+                work.Add(spin);
+            }
+            for (; wi < work.Count; wi++) result.Add(work[wi]);   // guard tripped: keep the rest whole
+            return result;
+        }
+
+        /// <summary>In-container neighbours of <paramref name="t"/> (its hex neighbours that are in
+        /// <paramref name="members"/>), returned as a fresh small list. <paramref name="tmp"/> is a reused
+        /// scratch buffer for the grid call.</summary>
+        private static List<int> InMemberNeighbors(WorldGrid grid, int t, HashSet<int> members, List<PlanetTile> tmp)
+        {
+            tmp.Clear();
+            grid.GetTileNeighbors(t, tmp);
+            var list = new List<int>(6);
+            for (int i = 0; i < tmp.Count; i++)
+            {
+                int nid = tmp[i].tileId;
+                if (members.Contains(nid)) list.Add(nid);
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// Cut vertices (articulation points) of the container subgraph over <paramref name="members"/>
+        /// under hex adjacency, by an ITERATIVE Tarjan DFS — O(V+E), no recursion so a several-thousand-tile
+        /// container can't blow the stack. A vertex is a cut vertex iff removing it increases the number of
+        /// connected components; for a CONNECTED container that is exactly "removing it produces &gt;= 2
+        /// components", the fire condition <see cref="SplitContainersAtNecks"/> tests with a full flood — so
+        /// gating that flood on this set changes nothing but the work done (#60). Also reports the component
+        /// count via <paramref name="componentCount"/> so the caller can fall back to the exhaustive scan on a
+        /// disconnected piece, where the equivalence does not hold. The cut SET is independent of DFS/root
+        /// order, so no sort is needed for determinism.
+        /// </summary>
+        private static HashSet<int> ArticulationPoints(WorldGrid grid, HashSet<int> members, out int componentCount)
+        {
+            var cuts = new HashSet<int>();
+            var disc = new Dictionary<int, int>(members.Count);
+            var low = new Dictionary<int, int>(members.Count);
+            var childCount = new Dictionary<int, int>(members.Count);
+            var neighOf = new Dictionary<int, List<int>>(members.Count);
+            var tmp = new List<PlanetTile>();
+            int timer = 0, components = 0;
+
+            // Explicit DFS stack (node / its parent in the DFS tree / cursor into its neighbour list).
+            var stkNode = new Stack<int>();
+            var stkParent = new Stack<int>();
+            var stkIdx = new Stack<int>();
+
+            foreach (int root in members)
+            {
+                if (disc.ContainsKey(root)) continue;
+                components++;
+
+                disc[root] = low[root] = ++timer;
+                childCount[root] = 0;
+                neighOf[root] = InMemberNeighbors(grid, root, members, tmp);
+                stkNode.Push(root); stkParent.Push(-1); stkIdx.Push(0);
+
+                while (stkNode.Count > 0)
+                {
+                    int u = stkNode.Peek();
+                    int parent = stkParent.Peek();
+                    int idx = stkIdx.Peek();
+                    var un = neighOf[u];
+
+                    if (idx < un.Count)
+                    {
+                        stkIdx.Pop(); stkIdx.Push(idx + 1);   // advance this frame's cursor
+                        int v = un[idx];
+                        if (v == parent) continue;            // simple graph: skip the one edge back to parent
+                        if (disc.ContainsKey(v))
+                        {
+                            if (disc[v] < low[u]) low[u] = disc[v];   // back edge
+                        }
+                        else
+                        {
+                            childCount[u] = childCount[u] + 1;        // tree edge: u gains a DFS child, descend
+                            disc[v] = low[v] = ++timer;
+                            childCount[v] = 0;
+                            neighOf[v] = InMemberNeighbors(grid, v, members, tmp);
+                            stkNode.Push(v); stkParent.Push(u); stkIdx.Push(0);
+                        }
+                    }
+                    else
+                    {
+                        stkNode.Pop(); stkParent.Pop(); stkIdx.Pop();   // u is finished
+                        if (parent != -1)
+                        {
+                            if (low[u] < low[parent]) low[parent] = low[u];
+                            // A non-root parent is a cut vertex if a child's subtree reaches no higher than it.
+                            if (parent != root && low[u] >= disc[parent]) cuts.Add(parent);
+                        }
+                        else if (childCount[u] >= 2)
+                        {
+                            cuts.Add(u);   // the DFS-tree root is a cut vertex iff it has >= 2 children
+                        }
+                    }
+                }
+            }
+
+            componentCount = components;
+            return cuts;
+        }
+
+        /// <summary>Connected components (hex adjacency) of <paramref name="members"/> with <paramref
+        /// name="skip"/> removed. Deterministic (ascending tile ids).</summary>
+        private static List<List<int>> FloodComponentsExcluding(WorldGrid grid, HashSet<int> members, int skip, List<PlanetTile> nb)
+        {
+            var seen = new HashSet<int> { skip };
+            var comps = new List<List<int>>();
+            var stack = new Stack<int>();
+            var ordered = new List<int>(members);
+            ordered.Sort();
+            foreach (int start in ordered)
+            {
+                if (seen.Contains(start)) continue;
+                var comp = new List<int>();
+                stack.Clear(); stack.Push(start); seen.Add(start);
+                while (stack.Count > 0)
+                {
+                    int cur = stack.Pop();
+                    comp.Add(cur);
+                    nb.Clear();
+                    grid.GetTileNeighbors(cur, nb);
+                    for (int i = 0; i < nb.Count; i++)
+                    {
+                        int nid = nb[i].tileId;
+                        if (members.Contains(nid) && !seen.Contains(nid)) { seen.Add(nid); stack.Push(nid); }
+                    }
+                }
+                comps.Add(comp);
+            }
+            return comps;
+        }
+
+        /// <summary>
+        /// Mark the passable Mountainous tiles that belong to a RIDGE WITH PEAKS as container barriers (#40).
+        /// A RimWorld mountain range is impassable peaks interleaved with passable Mountainous saddles, so a
+        /// region flows through the saddle and spans the range even though the peaks are hard walls — the
+        /// border closes only "50% of the way" along the dotted line of peaks. This floods every connected
+        /// component of high ground (Mountainous OR impassable, hex-adjacent); a component that contains at
+        /// least one impassable peak is a real ridge, so its passable Mountainous tiles are walled too,
+        /// turning the dotted line into a continuous barrier — no reach limit, so a long Mountainous gap
+        /// between distant peaks still closes. A component of pure passable Mountainous with NO peak is left
+        /// alone (a rolling mountain-foot a region may still flow over), which is what a lone-hill test must
+        /// do to avoid the over-firing that walling all Mountainous produced. Impassable tiles are already
+        /// their own MountainRange walls, so only the passable (interior) Mountainous tiles are flagged here.
+        /// The flagged tiles act as core-flood borders and are draped back to the two sides (2c), so the
+        /// ridge splits between the basins it divides rather than leaving a hole.
+        /// </summary>
+        private static bool[] MarkRidgeBarriers(WorldGrid grid, bool[] interior, TileSignal[] signals, int total)
+        {
+            var barrier = new bool[total];
+            var seen = new bool[total];
+            var comp = new List<int>();
+            var stack = new Stack<int>();
+            var nb = new List<PlanetTile>();
+            for (int s = 0; s < total; s++)
+            {
+                if (seen[s] || signals[s].HillClass < 3) continue;   // seed only high ground (Mountainous/impassable)
+                comp.Clear();
+                stack.Clear();
+                stack.Push(s); seen[s] = true;
+                bool hasPeak = false;
+                while (stack.Count > 0)
+                {
+                    int cur = stack.Pop();
+                    comp.Add(cur);
+                    if (signals[cur].HillClass >= 4) hasPeak = true;   // an impassable peak anchors the ridge
+                    nb.Clear();
+                    grid.GetTileNeighbors(cur, nb);
+                    for (int i = 0; i < nb.Count; i++)
+                    {
+                        int nid = nb[i].tileId;
+                        if (nid < 0 || nid >= total || seen[nid]) continue;
+                        if (signals[nid].HillClass >= 3) { seen[nid] = true; stack.Push(nid); }
+                    }
+                }
+                if (hasPeak)
+                    foreach (int t in comp)
+                        if (interior[t]) barrier[t] = true;   // passable Mountainous on a peaked ridge = barrier
+            }
+            return barrier;
+        }
+
+        // Ridge-pass detection (#40). A RimWorld mountain range is impassable PEAKS interleaved with
+        // PASSABLE Mountainous saddles, so a region flows through the saddle and spans the ridge. The rule
+        // closes the ridge by EXTENDING the hard walls across those saddles: a high-ground tile that can
+        // reach IMPASSABLE / water on genuinely opposing sides, travelling only over other high ground
+        // within K tiles, is a ridge saddle and becomes part of the barrier. K=3 keeps it to a narrow gap;
+        // the dot cutoff means the two flanks point >~105 degrees apart (opposing, not one flank).
+        //
+        // The flank is a HARD WALL only (water / impassable) — NOT LargeHills. An earlier version counted
+        // LargeHills as a flank and fired on a fifth of the land, because any low tile in hilly country has
+        // big hills on two sides; bridging only between actual peaks fires just in real ridge gaps.
+        private const int NeckRadius = 3;
+        private const float NeckOppositeDot = -0.25f;
+
+        /// <summary>
+        /// Flag the saddle tiles that sit in a narrow pass — a passable corridor pinched between impassable
+        /// peaks (or water) on opposite sides — so the caller can extend the hard walls across them and the
+        /// ridge reads as one continuous barrier (#40). Any passable land tile is a candidate; a bounded BFS
+        /// (depth <see cref="NeckRadius"/>, travelling over passable land) collects the bearings to any HARD
+        /// WALL (water / impassable) it reaches, and if two bearings oppose the tile sits in a notch between
+        /// two walls and closes — whether the notch is a high saddle or a LOW pass, as long as it is narrow.
+        /// The flank is a hard wall only (not high ground), so open country never fires: only a tile within
+        /// <see cref="NeckRadius"/> of peaks/water on genuinely opposing sides is a pass.
         /// </summary>
         private static bool[] MarkPassNecks(WorldGrid grid, bool[] isLand, TileSignal[] signals, int total)
         {
@@ -627,8 +1027,10 @@ namespace RegionsAndSocieties.Partition
             var q = new Queue<int>();
             for (int t = 0; t < total; t++)
             {
-                // Only a low, passable land tile can be a saddle.
-                if (!isLand[t] || signals[t].HillClass > NeckLowHillClass) continue;
+                // ANY passable land tile can be a saddle — valley floor or ridge alike. The point is simply:
+                // a passable tile flanked by impassable mountains (or water) on opposing sides is a natural
+                // barrier. The flank test below (hard wall only) is what keeps it to real passes.
+                if (!isLand[t]) continue;
 
                 dirs.Clear(); depth.Clear(); q.Clear();
                 q.Enqueue(t); depth[t] = 0;
@@ -643,10 +1045,11 @@ namespace RegionsAndSocieties.Partition
                     foreach (var n in neighbors)
                     {
                         int nid = n.tileId;
-                        bool flankWall = !isLand[nid] || signals[nid].HillClass >= NeckWallHillClass;
+                        if (nid < 0 || nid >= total) continue;   // off-surface / out-of-range neighbour (multi-layer worlds)
+                        bool flankWall = !isLand[nid];   // a HARD WALL only: water or an impassable peak
                         if (flankWall)
                         {
-                            // A flanking wall reached within the radius: note its bearing.
+                            // A flanking hard wall reached within the radius: note its bearing.
                             UnityEngine.Vector3 dir = grid.GetTileCenter(nid) - ct;
                             if (dir.sqrMagnitude < 1e-6f) continue;
                             dir = dir.normalized;
@@ -656,7 +1059,7 @@ namespace RegionsAndSocieties.Partition
                         }
                         else if (d < NeckRadius && !depth.ContainsKey(nid))
                         {
-                            // Traverse only low land while measuring the saddle's width.
+                            // Travel the notch over passable land, measuring its width to the flanks.
                             depth[nid] = d + 1;
                             q.Enqueue(nid);
                         }
