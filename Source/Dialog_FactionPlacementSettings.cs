@@ -76,6 +76,8 @@ namespace RegionsAndSocieties
             // size × a typical land fraction (pre-gen — shown to the player as an assumption).
             int landTiles;
             bool landFromGrid = false;
+            float estLandFraction = Placement.PlacementEstimates.TypicalLandFraction;   // land fraction the pre-gen estimate used (for the display line)
+            int rp2SeaLevel = -1;
             // Find.WorldGrid dereferences Find.World internally, so it THROWS (not returns null) when no
             // world exists yet — which is exactly this dialog's common case, opened pre-generation from the
             // world-creation screen. Guard on Find.World first, then fall through to the pre-gen estimate.
@@ -88,8 +90,18 @@ namespace RegionsAndSocieties
             }
             else
             {
-                int totalTiles = Placement.PlacementEstimates.EstimateTotalTiles(coverage);
-                landTiles = Placement.PlacementEstimates.EstimateLandTiles(totalTiles, Placement.PlacementEstimates.TypicalLandFraction);
+                // Under Realistic Planets 2, sea level shifts the land fraction and Planet Scale (subcount)
+                // sets the tile count, which the vanilla coverage curve cannot see; read them reflectively
+                // (#54 RP2 tail). Without RP2 this stays the vanilla curve + flat land fraction.
+                rp2SeaLevel = Integration.RealisticPlanetsProbe.TryGetSeaLevelOrdinal();
+                int rp2Subcount = Integration.RealisticPlanetsProbe.TryGetSubcount();
+                bool rp2 = Integration.RealisticPlanetsProbe.IsActive && (rp2SeaLevel >= 0 || rp2Subcount > 0);
+                int totalTiles = rp2
+                    ? Placement.PlacementEstimates.EstimateTotalTilesRP2(rp2Subcount, coverage)
+                    : Placement.PlacementEstimates.EstimateTotalTiles(coverage);
+                if (rp2 && rp2SeaLevel >= 0)
+                    estLandFraction = Placement.PlacementEstimates.LandFractionForSeaLevel(rp2SeaLevel);
+                landTiles = Placement.PlacementEstimates.EstimateLandTiles(totalTiles, estLandFraction);
             }
 
             // If the world's regions are already generated, report the ACTUAL count; else the estimate band.
@@ -190,9 +202,11 @@ namespace RegionsAndSocieties
 
             // Estimates row
             Rect estRect = new Rect(10f, 135f, globalBoxRect.width - 20f, 22f);
+            string[] seaLevelNames = { "low", "slightly low", "normal", "slightly high", "high" };
+            string seaNote = rp2SeaLevel >= 0 && rp2SeaLevel < seaLevelNames.Length ? $", {seaLevelNames[rp2SeaLevel]} sea level" : "";
             string landPart = landFromGrid
                 ? $"Land tiles: <color=cyan>{landTiles}</color>"
-                : $"Est. land tiles: <color=cyan>{landTiles}</color> (~{Mathf.RoundToInt(Placement.PlacementEstimates.TypicalLandFraction * 100f)}% of a {Mathf.RoundToInt(coverage * 100f)}%-coverage planet)";
+                : $"Est. land tiles: <color=cyan>{landTiles}</color> (~{Mathf.RoundToInt(estLandFraction * 100f)}% of a {Mathf.RoundToInt(coverage * 100f)}%-coverage planet{seaNote})";
             string countPart = actualRegions > 0
                 ? $"Regions: <color=green>{actualRegions}</color> (this world)"
                 : $"Expected regions: <color=green>~{estMid}</color> <color=grey>(rough — varies with sea level)</color>";
