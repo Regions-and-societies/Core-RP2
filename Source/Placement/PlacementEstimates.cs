@@ -106,21 +106,26 @@ namespace RegionsAndSocieties.Placement
         // flagged for the RP2 acceptance matrix (#54): re-measure the worldgen CALIB: land fraction at
         // each sea level and the tile count at each subcount, then bake the medians here.
 
-        /// <summary>The default RP2 planet-scale subdivision count (its "Planet Scale" slider midpoint),
-        /// at which <see cref="EstimateTotalTilesRP2"/> matches the vanilla coverage curve. CONFIRMED
-        /// 2026-09-08: an RP2 world at subcount 10 / 30% coverage generated exactly 119,904 tiles — the
-        /// same as the vanilla <see cref="EstimateTotalTiles"/> anchor for 30% — so subcount 10 is the
-        /// baseline and the (subcount/10)^2 scaling holds. (Slider range 5..11.)</summary>
+        /// <summary>The default RP2 planet-scale subdivision count (its "Planet Scale" slider midpoint,
+        /// range 5..11), at which <see cref="EstimateTotalTilesRP2"/> matches the vanilla coverage curve.
+        /// CONFIRMED 2026-09-08: an RP2 world at subcount 10 / 30% coverage generated exactly 119,904 tiles,
+        /// the same as the vanilla <see cref="EstimateTotalTiles"/> anchor for 30%.</summary>
         public const int Rp2SubcountBaseline = 10;
 
-        /// <summary>Pre-gen land fraction for RP2's five sea levels (ordinal 0 = Low .. 4 = High), a
-        /// monotone spread centred on <see cref="TypicalLandFraction"/> at Normal (higher sea level =
-        /// more ocean = less land). FIRST-GUESS pending the #54 RP2 matrix — the real per-level means come
-        /// from the worldgen CALIB: line; land fraction also swings widely by seed, so this stays a rough
-        /// pre-gen assumption shown to the player, not a tight number. One Normal-sea-level sample (2026-09-08)
-        /// read 43.3% land — below the 50% here, but a single seed cannot separate an RP2 mean shift from
-        /// seed variance, so the table is unchanged pending several seeds per level.</summary>
-        private static readonly float[] Rp2LandFractionBySeaLevel = { 0.62f, 0.56f, 0.50f, 0.44f, 0.38f };
+        /// <summary>Tile-count multiplier per +1 RP2 Planet Scale step. MEASURED 2026-09-08 (seed biomemix,
+        /// 30% coverage): subcount 5 → 488 tiles, 8 → 13,323, 10 → 119,904 — a clean ×3.0 per step
+        /// (119904/13323 = 9.00 = 3^2, 13323/488 = 27.3 ≈ 3^3). So the tile count grows EXPONENTIALLY with
+        /// Planet Scale, not with its square.</summary>
+        public const double Rp2SubcountTileFactor = 3.0;
+
+        /// <summary>Pre-gen land fraction for RP2's five sea levels (ordinal 0 = Low .. 4 = High; higher sea
+        /// level = more ocean = less land). CALIBRATED 2026-09-08 from a controlled biomemix sweep at
+        /// subcount 10 / 30% coverage (Low 72.5%, Normal 58.6%, High 27.2%); Normal is anchored to a
+        /// cross-seed mean of 0.50 (two Normal seeds read 43.3% and 58.6%) and the measured sea-level
+        /// spread is applied multiplicatively, with SlightlyLow/SlightlyHigh interpolated. Land fraction
+        /// still swings widely by seed, so this is the pre-gen assumption shown to the player as "rough",
+        /// not a tight number; more seeds per level would refine the spread further (#54).</summary>
+        private static readonly float[] Rp2LandFractionBySeaLevel = { 0.62f, 0.56f, 0.50f, 0.37f, 0.23f };
 
         /// <summary>Land fraction for an RP2 sea-level ordinal (0 = Low .. 4 = High). Out-of-range or -1
         /// falls back to <see cref="TypicalLandFraction"/>.</summary>
@@ -131,20 +136,20 @@ namespace RegionsAndSocieties.Placement
         }
 
         /// <summary>
-        /// Total world tiles under RP2, where <paramref name="subcount"/> (icosahedron subdivisions, RP2's
-        /// "Planet Scale") sets the resolution and <paramref name="coverage"/> still selects how much of the
-        /// planet is generated. A subdivided icosahedron's tile count grows with the square of the
-        /// subdivision level, so the vanilla coverage curve (taken at <see cref="Rp2SubcountBaseline"/>) is
-        /// scaled by (subcount / baseline)^2. FIRST-GUESS scaling — CALIBRATE the baseline tile count and the
-        /// exponent against RP2 worldgen at a couple of Planet Scale settings (#54). A non-positive subcount
-        /// falls back to the plain vanilla curve.
+        /// Total world tiles under RP2, where <paramref name="subcount"/> (RP2's "Planet Scale", the
+        /// icosahedron subdivision level) sets the resolution and <paramref name="coverage"/> still selects
+        /// how much of the planet is generated. MEASURED: the tile count multiplies by
+        /// <see cref="Rp2SubcountTileFactor"/> (×3.0) for every +1 of Planet Scale, so the vanilla coverage
+        /// curve (taken at <see cref="Rp2SubcountBaseline"/> = subcount 10) is scaled by
+        /// 3.0^(subcount - 10). Verified at subcount 5/8/10 (488 / 13,323 / 119,904 at 30% coverage). A
+        /// non-positive subcount falls back to the plain vanilla curve.
         /// </summary>
         public static int EstimateTotalTilesRP2(int subcount, float coverage)
         {
             int baseTiles = EstimateTotalTiles(coverage);
             if (subcount <= 0) return baseTiles;
-            double scale = (double)subcount / Rp2SubcountBaseline;
-            return (int)Math.Round(baseTiles * scale * scale);
+            double scale = Math.Pow(Rp2SubcountTileFactor, subcount - Rp2SubcountBaseline);
+            return (int)Math.Round(baseTiles * scale);
         }
     }
 }

@@ -43,6 +43,25 @@ namespace PlacementEstimatesTests
             Check("zero coverage -> 0", PlacementEstimates.EstimateTotalTiles(0f) == 0);
             Check("far above the old linear model at 30% (was 30000)", PlacementEstimates.EstimateTotalTiles(0.30f) > 30000 * 3);
 
+            Section("RP2 planet-scale tiles — ×3.0 per subcount step (measured 2026-09-08)");
+            Check("subcount 10 = the vanilla curve", PlacementEstimates.EstimateTotalTilesRP2(10, 0.30f) == PlacementEstimates.EstimateTotalTiles(0.30f));
+            Check("subcount 8 = curve / 9 (3^-2) -> ~13323", Near(PlacementEstimates.EstimateTotalTilesRP2(8, 0.30f), 13323, 2));
+            Check("subcount 11 = curve × 3 -> ~359712", Near(PlacementEstimates.EstimateTotalTilesRP2(11, 0.30f), 359712, 2));
+            Check("subcount 5 = curve / 243 (3^-5) -> ~493", Near(PlacementEstimates.EstimateTotalTilesRP2(5, 0.30f), 493, 2));
+            Check("bigger Planet Scale -> more tiles", PlacementEstimates.EstimateTotalTilesRP2(11, 0.30f) > PlacementEstimates.EstimateTotalTilesRP2(10, 0.30f));
+            Check("subcount<=0 falls back to the plain curve", PlacementEstimates.EstimateTotalTilesRP2(0, 0.30f) == PlacementEstimates.EstimateTotalTiles(0.30f));
+
+            Section("RP2 sea level -> land fraction (calibrated, monotone)");
+            Check("Normal (2) = the cross-seed mean 0.50", Math.Abs(PlacementEstimates.LandFractionForSeaLevel(2) - 0.50f) < 0.001f);
+            Check("Low (0) has the most land", PlacementEstimates.LandFractionForSeaLevel(0) > PlacementEstimates.LandFractionForSeaLevel(2));
+            Check("High (4) has the least land", PlacementEstimates.LandFractionForSeaLevel(4) < PlacementEstimates.LandFractionForSeaLevel(2));
+            Check("monotone decreasing Low..High",
+                PlacementEstimates.LandFractionForSeaLevel(0) > PlacementEstimates.LandFractionForSeaLevel(1) &&
+                PlacementEstimates.LandFractionForSeaLevel(1) > PlacementEstimates.LandFractionForSeaLevel(2) &&
+                PlacementEstimates.LandFractionForSeaLevel(2) > PlacementEstimates.LandFractionForSeaLevel(3) &&
+                PlacementEstimates.LandFractionForSeaLevel(3) > PlacementEstimates.LandFractionForSeaLevel(4));
+            Check("out-of-range / -1 falls back to the typical fraction", PlacementEstimates.LandFractionForSeaLevel(-1) == PlacementEstimates.TypicalLandFraction && PlacementEstimates.LandFractionForSeaLevel(9) == PlacementEstimates.TypicalLandFraction);
+
             Console.WriteLine();
             Console.WriteLine(failures == 0 ? "ALL PLACEMENT-ESTIMATE TESTS PASSED" : failures + " PLACEMENT-ESTIMATE TEST(S) FAILED");
             return failures == 0 ? 0 : 1;

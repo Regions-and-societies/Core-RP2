@@ -112,6 +112,11 @@ namespace RegionsAndSocieties
         /// </summary>
         public static float devQuicktestCoverage = 0f;
         public static string devQuicktestSeed = "";
+        // #54 RP2 calibration sweep: on a -quicktest launch under Realistic Planets 2, override RP2's
+        // Planet Scale (subcount, ~5..11; 0 = leave default) and sea level (ordinal 0=Low..4=High; -1 =
+        // leave default) so a scripted run can measure the tile count / land fraction at each. RP2-only.
+        public static int devQuicktestSubcount = 0;
+        public static int devQuicktestSeaLevel = -1;
 
         /// <summary>
         /// #51: the single density knob — the target fraction of livable LAND area claimed by territories.
@@ -204,6 +209,8 @@ namespace RegionsAndSocieties
             Scribe_Values.Look(ref targetRegionSize, "targetRegionSize", 150);
             Scribe_Values.Look(ref devQuicktestCoverage, "devQuicktestCoverage", 0f);
             Scribe_Values.Look(ref devQuicktestSeed, "devQuicktestSeed", "");
+            Scribe_Values.Look(ref devQuicktestSubcount, "devQuicktestSubcount", 0);
+            Scribe_Values.Look(ref devQuicktestSeaLevel, "devQuicktestSeaLevel", -1);
             Scribe_Values.Look(ref claimedLandAreaPercent, "maxSettlementPercentOfRegions", 0.50f);
             Scribe_Values.Look(ref territoryCompactness, "territoryCompactness", 0.6f);
             Scribe_Values.Look(ref partitionAlgorithmId, "partitionAlgorithmId", Partition.RegionPartitionerRegistry.DefaultAlgorithmId);

@@ -1332,6 +1332,14 @@ namespace RegionsAndSocieties.Patches
                     Log.Message($"[RegionsAndSocieties] DEV: quicktest world seed overridden '{seedString}' -> '{devSeed}' (devQuicktestSeed).");
                     seedString = devSeed;
                 }
+                // #54 RP2 calibration: force RP2's Planet Scale / sea level for this gen (RP2-only; no-op
+                // otherwise). RP2's own RegisterPlanetLayer prefix picks up subcount for the subdivisions.
+                int devSub = FactionPlacementSettings.devQuicktestSubcount;
+                if (devSub > 0 && Integration.RealisticPlanetsProbe.TrySetSubcount(devSub))
+                    Log.Message($"[RegionsAndSocieties] DEV: RP2 Planet Scale (subcount) overridden -> {devSub} (devQuicktestSubcount).");
+                int devSea = FactionPlacementSettings.devQuicktestSeaLevel;
+                if (devSea >= 0 && Integration.RealisticPlanetsProbe.TrySetSeaLevelOrdinal(devSea))
+                    Log.Message($"[RegionsAndSocieties] DEV: RP2 sea level overridden -> ordinal {devSea} (devQuicktestSeaLevel).");
             }
 
             worldgenTimer = System.Diagnostics.Stopwatch.StartNew();
