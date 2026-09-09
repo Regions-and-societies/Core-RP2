@@ -47,6 +47,17 @@ namespace RegionsAndSocieties.Placement
         public const float LooseOwnershipThreshold = 0.51f;
 
         /// <summary>
+        /// Barrier-unlock floor (#50): a major owner whose non-barrier claim reaches this earns the
+        /// region's natural walls (water/ridge/impassable) as its secure border. Deliberately 0.50, one
+        /// hundredth below <see cref="LooseOwnershipThreshold"/>, so a lone settlement in an otherwise
+        /// empty enclosed region — holdings exactly 0.50 (settlement 0.30 + outpost 0.15 + most-outposts
+        /// 0.05), no contestable edges to lift it over 0.51 — still claims its own walls. It is NOT the
+        /// 51% majority rung of the four-tier ladder (that stays <see cref="LooseOwnershipThreshold"/>,
+        /// read by TierOf / the border layer / the colony block); it only gates the barrier bonus.
+        /// </summary>
+        public const float BarrierUnlockThreshold = 0.50f;
+
+        /// <summary>
         /// Exclusive-ownership floor (71%): a rival at or above this owns the province outright and
         /// blocks even a player start. Was the bare <c>0.70f</c> in <c>RegionalDomainUtility</c>.
         /// </summary>

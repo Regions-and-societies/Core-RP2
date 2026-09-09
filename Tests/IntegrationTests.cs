@@ -144,6 +144,9 @@ namespace IntegrationTests
             Check("caravan is not territorial", !WorldObjectClassifier.IsTerritorial(caravan));
             Check("unknown mod 'GrandOutpost' -> Outpost via heuristic", WorldObjectClassifier.Classify(oddOutpost) == WorldObjectKind.Outpost);
             Check("unrecognisable object -> Unknown", WorldObjectClassifier.Classify(doodad) == WorldObjectKind.Unknown);
+            // The unknown-object log now defaults OFF (0.4.0 ship defaults); enable it to test the log-once path.
+            WorldObjectIntegrationSettings.logUnknownWorldObjects = true;
+            WorldObjectClassifier.Classify(doodad);
             Check("unrecognisable object logged once", CountLogsContaining("Doodad") == 1);
             WorldObjectClassifier.Classify(doodad);
             Check("still logged only once after a second look", CountLogsContaining("Doodad") == 1);

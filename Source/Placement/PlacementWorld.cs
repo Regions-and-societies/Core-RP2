@@ -20,6 +20,11 @@ namespace RegionsAndSocieties.Placement
         /// <summary>Every territorial object currently on the map.</summary>
         public List<PlacementHolding> Holdings = new List<PlacementHolding>();
 
+        /// <summary>#18: whether the region lock is in force — refuse a holding in a region a rival holds
+        /// exclusively. False leaves the other ownership rules (buffer, separation, supply, foothold) intact
+        /// but lets factions (and seeding) place into a rival's owned region. Defaults on.</summary>
+        public bool RegionLock = true;
+
         /// <summary>Province containing a tile, or -1 if the tile belongs to no province.</summary>
         public Func<int, int> ProvinceIdAt;
 

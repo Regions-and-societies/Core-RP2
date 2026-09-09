@@ -29,6 +29,10 @@ namespace RegionsAndSocieties
                 options.Add(new FloatMenuOption(territoryMode.def.LabelCap, () => MapModeComponent.Instance.RequestMapModeSwitch(territoryMode)));
             }
 
+            // #53: the demographic / society overlays (population through employment) are offered only when
+            // Societies is on. With it off, only the Regions views — Territories and Biomes & walls — remain.
+            if (RegionsAndSocietiesMod.SocietiesEnabled)
+            {
             var popMode = MapModeComponent.Instance.mapModes.FirstOrDefault(m => m.def.defName == "SynapsePopulationDensity");
             if (popMode != null)
             {
@@ -96,6 +100,7 @@ namespace RegionsAndSocieties
             {
                 options.Add(new FloatMenuOption(employMode.def.LabelCap, () => MapModeComponent.Instance.RequestMapModeSwitch(employMode)));
             }
+            }   // #53: end of society overlays
 
             // Biomes & walls: the terrain/partition debug overlay (#20).
             var barriersMode = MapModeComponent.Instance.mapModes.FirstOrDefault(m => m.def.defName == "SynapseNaturalBarriers");

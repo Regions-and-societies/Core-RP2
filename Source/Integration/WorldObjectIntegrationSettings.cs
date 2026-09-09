@@ -21,7 +21,7 @@ namespace RegionsAndSocieties.Integration
 
         // --- Per-mechanic switches ------------------------------------------------
         /// <summary>Gate placement of foreign world objects on region ownership and supply range.</summary>
-        public static bool placementGovernance = true;
+        public static bool placementGovernance = false;
 
         /// <summary>Apply security/ownership, resource-cap, and local-richness modifiers to production.</summary>
         public static bool economyGovernance = true;
@@ -30,7 +30,7 @@ namespace RegionsAndSocieties.Integration
         public static bool militaryGovernance = true;
 
         /// <summary>Classify settlements into village/town/city/major-city tiers.</summary>
-        public static bool settlementTiers = true;
+        public static bool settlementTiers = false;
 
         /// <summary>
         /// Seed VOE outposts around settlements at world generation, up to each territory's
@@ -38,6 +38,14 @@ namespace RegionsAndSocieties.Integration
         /// vanilla and the faction placer produced, as before 0.8.
         /// </summary>
         public static bool outpostSeeding = true;
+
+        /// <summary>
+        /// #18 world maturity: how built-up a freshly generated world starts, 0..1. It scales the
+        /// per-anchor allowance every seeding policy reports, so 1.0 seeds each territory's full holding
+        /// allowance (a ready-to-play, fully-settled world — e.g. a World Domination start) and 0 seeds
+        /// nothing. Applied at world generation only; stamped per-world so a regenerate reproduces it.
+        /// </summary>
+        public static float seedingMaturity = 0.5f;   // Sizing.SeedingMaturityRules.DefaultMaturity
 
         /// <summary>
         /// Model a per-tier population cap (0.8): a settlement's size drifts toward two-thirds of
@@ -90,17 +98,18 @@ namespace RegionsAndSocieties.Integration
 
         // --- Diagnostics ----------------------------------------------------------
         /// <summary>Log each world-object type that no adapter or heuristic could classify (once per type).</summary>
-        public static bool logUnknownWorldObjects = true;
+        public static bool logUnknownWorldObjects = false;
 
         public static void ExposeData()
         {
             Scribe_Values.Look(ref masterEnabled, "integration_masterEnabled", true);
 
-            Scribe_Values.Look(ref placementGovernance, "integration_placementGovernance", true);
+            Scribe_Values.Look(ref placementGovernance, "integration_placementGovernance", false);
             Scribe_Values.Look(ref economyGovernance, "integration_economyGovernance", true);
             Scribe_Values.Look(ref militaryGovernance, "integration_militaryGovernance", true);
-            Scribe_Values.Look(ref settlementTiers, "integration_settlementTiers", true);
+            Scribe_Values.Look(ref settlementTiers, "integration_settlementTiers", false);
             Scribe_Values.Look(ref outpostSeeding, "integration_outpostSeeding", true);
+            Scribe_Values.Look(ref seedingMaturity, "integration_seedingMaturity", 0.5f);
             Scribe_Values.Look(ref populationCaps, "integration_populationCaps", true);
             Scribe_Values.Look(ref populationCapMultiplier, "integration_populationCapMultiplier", DefaultPopulationCapMultiplier);
             Scribe_Values.Look(ref capMultiplierRescaled030, "integration_capMultiplierRescaled030", false);
@@ -118,7 +127,7 @@ namespace RegionsAndSocieties.Integration
             Scribe_Values.Look(ref demographicFalloffModel, "integration_demographicFalloffModel", 0);
             Scribe_Values.Look(ref demographicGenerationYears, "integration_demographicGenerationYears", 15f);
 
-            Scribe_Values.Look(ref logUnknownWorldObjects, "integration_logUnknownWorldObjects", true);
+            Scribe_Values.Look(ref logUnknownWorldObjects, "integration_logUnknownWorldObjects", false);
         }
 
         // Convenience accessors so call sites read as intent rather than as boolean algebra.

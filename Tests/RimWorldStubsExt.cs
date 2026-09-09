@@ -53,6 +53,9 @@ namespace Verse
 {
     using RimWorld.Planet;
 
+    // Player prefs surface used by the impure typecheck (the dev-mode tile inspector reads Prefs.DevMode).
+    public static class Prefs { public static bool DevMode; }
+
     public interface IExposable { void ExposeData(); }
 
     public enum LookMode { Undefined, Value, Def, Deep, Reference, LocalTargetInfo, TargetInfo, GlobalTargetInfo, BodyPart }
@@ -94,6 +97,9 @@ namespace Verse
         public float plantDensity;
         public float forageability;
         public float TreeDensity;
+        public float movementDifficulty = 1f;
+        public float diseaseMtbDays = 60f;
+        public float settlementSelectionWeight = 1f;
     }
 
     /// <summary>1.6 turned Tile into a class; only the members the shipping code reads are present.</summary>
@@ -214,6 +220,9 @@ namespace RegionsAndSocieties
         public List<GeographicProvince> Provinces = new List<GeographicProvince>();
 
         public bool StrictTerritorialOwnership = false;
+
+        // #18: the region-lock flag WorldObjectPlacementUtility.BuildWorld reads into each snapshot.
+        public bool EffectiveRegionLock = true;
 
         public int GetProvinceId(int tileId) { return -1; }
         public GeographicProvince GetProvince(int provinceId) { return null; }

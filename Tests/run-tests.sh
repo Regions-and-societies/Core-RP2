@@ -82,7 +82,7 @@ run_suite() {
 # the folder over 0.7.2-0.8 (debug reports, MCP tool registration, the claim hook, the holding
 # creators). Those files need a running game, are stubbed via RimWorldStubsExt, and are held to
 # their real shapes by the type-check below instead.
-INTEGRATION_PURE=$(ls $SRC/Integration/*.cs | grep -v -e RegionDebugReports -e RegionMcpTools -e TerritoryClaimHooks -e PopulationDynamics -e VoeOutpostCreator -e HoldingCreatorRegistry -e IHoldingCreator)
+INTEGRATION_PURE=$(ls $SRC/Integration/*.cs | grep -v -e RegionDebugReports -e RegionMcpTools -e TerritoryClaimHooks -e PopulationDynamics -e VoeOutpostCreator -e HoldingCreatorRegistry -e IHoldingCreator -e ISeedingPolicy -e SeedingPolicyRegistry -e OutpostSeedingPolicy -e DefaultSeedingPolicy)
 
 # Sizing tables are pure EXCEPT the game-coupled glue (SettlementGrowthUtility reads Find / region
 # demographics), which cannot compile against the stubs — the real build covers it, like the other glue.
@@ -101,6 +101,12 @@ run_suite placement Exe \
 run_suite outpostrules Exe \
     Tests/RimWorldStubs.cs Tests/OutpostRulesTests.cs \
     $SRC/Integration/WorldObjectKind.cs $SIZING_PURE
+
+# 0.4.0 world-maturity scaling for holding seeding (#18): base allowance × maturity, zero-only-yields-
+# nothing, slider labels. Pure, no game — needs only the standalone SeedingMaturityRules.
+run_suite seedingmaturity Exe \
+    Tests/SeedingMaturityRulesTests.cs \
+    $SRC/Sizing/SeedingMaturityRules.cs
 
 # 0.3.0 settlement birthrate-growth core (#6): tech-informed rate + logistic step toward the target.
 # Pure, no game — needs only the standalone BirthrateRules.
@@ -146,6 +152,48 @@ run_suite employment Exe \
     Tests/EmploymentRulesTests.cs \
     $SRC/Demographics/EmploymentRules.cs
 
+# 0.4.0 biome habitability (#56): vanilla settlement weight × toil × health by tech, tile features,
+# the placement score and biome crowding. Pure, no game — one file.
+run_suite biomehabitability Exe \
+    Tests/BiomeHabitabilityRulesTests.cs \
+    $SRC/Placement/BiomeHabitabilityRules.cs
+
+# 0.4.0 drop-tiny-regions terminal rule (#51): the 6-tile cap, the settlement never-orphan guard,
+# and the drop-anyway rule for a holdingless speck. Pure, no game.
+run_suite tinyregion Exe \
+    Tests/TinyRegionRulesTests.cs \
+    $SRC/Placement/TinyRegionRules.cs
+
+# 0.4.0 shared region-count estimate (#54): expected regions from land tiles + target size, the
+# +/- band, and the pre-gen land-tile fallback. Pure, no game.
+run_suite placementestimates Exe \
+    Tests/PlacementEstimatesTests.cs \
+    $SRC/Placement/PlacementEstimates.cs
+
+# 0.4.0 placement-share model (#47): range->share migration, normalised fractions, per-faction
+# estimate, largest-remainder apportionment. Pure, no game.
+run_suite placementshare Exe \
+    Tests/PlacementShareRulesTests.cs \
+    $SRC/Placement/PlacementShareRules.cs $SRC/Placement/PlacementValueMode.cs
+
+# 0.4.0 small-island handling (#49): the join threshold and the 30-tile archipelago chain cut.
+# Pure, no game.
+run_suite island Exe \
+    Tests/IslandRulesTests.cs \
+    $SRC/Placement/IslandRules.cs
+
+# 0.4.0 territory clustering (#46): the 1/3/5/7/9+ cap, faction-kind defaults, within-cap-first
+# ranking, body tracking with merges, ascending seeding key. Pure, no game.
+run_suite clustering Exe \
+    Tests/ClusteringRulesTests.cs \
+    $SRC/Placement/ClusteringRules.cs $SRC/Placement/PlacementValueMode.cs
+
+# 0.4.0 sub-faction splitting (#57): the eligibility gate, section count, geographic grouping and
+# direction labels. Pure, no game; needs the clustering rules for the caps.
+run_suite subfaction Exe \
+    Tests/SubFactionRulesTests.cs \
+    $SRC/Placement/SubFactionRules.cs $SRC/Placement/ClusteringRules.cs $SRC/Placement/PlacementValueMode.cs
+
 # 0.2.0 territory-shape core (#19): embeddedness, desired-ratio scoring, domain compactness.
 run_suite compactness Exe \
     Tests/CompactnessRulesTests.cs \
@@ -156,6 +204,12 @@ run_suite compactness Exe \
 run_suite border Exe \
     Tests/BorderRulesTests.cs \
     $SRC/Partition/BorderRules.cs
+
+# 0.4.0 shore-proportional inland-lake split (#48): shore counts, largest-remainder quotas, and
+# the capacity-bounded flood whose region shares match the quotas. Pure, no game.
+run_suite lakesplit Exe \
+    Tests/LakeSplitRulesTests.cs \
+    $SRC/Partition/LakeSplitRules.cs
 
 # 0.3.0 sprawl spread: a settlement's people over its own tile and the tiles its terrain-aware sprawl
 # reaches, in proportion to the sprawl weights, total conserved. Pure, no game.
@@ -168,6 +222,10 @@ run_suite sprawl Exe \
 run_suite roads Exe \
     Tests/RoadPathRulesTests.cs \
     $SRC/Roads/RoadPathRules.cs
+# 0.4.0 trade-route core: traversal cost model + minimum-cost spanning network (Kruskal). Pure, no game.
+run_suite traderoute Exe \
+    Tests/TradeRouteRulesTests.cs \
+    $SRC/Trade/TradeRouteRules.cs
 
 run_suite resource Exe \
     Tests/RimWorldStubs.cs Tests/ResourceTests.cs \
@@ -204,7 +262,9 @@ run_suite typecheck Library \
     \
     $SRC/Patches/Patch_TileFinder_IsValidTileForNewSettlement.cs \
     $SRC/Compat/MapPreviewCompat.cs \
-    $SRC/Patches/Patch_WorldInspectPane_TileInspectString.cs
+    $SRC/Patches/Patch_WorldInspectPane_TileInspectString.cs \
+    $SRC/Integration/ISeedingPolicy.cs $SRC/Integration/SeedingPolicyRegistry.cs \
+    $SRC/Integration/OutpostSeedingPolicy.cs $SRC/Integration/DefaultSeedingPolicy.cs
 [ "$failures" -eq "$pre_typecheck_failures" ] && echo "  type-check clean"
 
 echo

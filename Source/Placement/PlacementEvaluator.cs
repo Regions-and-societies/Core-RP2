@@ -134,6 +134,10 @@ namespace RegionsAndSocieties.Placement
         {
             if (!PlacementRules.BlockedByForeignTerritory(kind)) return null;
 
+            // #18 region lock off: the exclusive-hold refusal stands down (the rest of the rules still
+            // apply), so factions and the seeding pass may build into a rival's owned region.
+            if (!world.RegionLock) return null;
+
             if (world.HasExclusiveRival(provinceId, faction))
             {
                 return PlacementDecision.Refuse(

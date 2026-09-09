@@ -345,6 +345,21 @@ namespace RegionsAndSocieties
         public static void EnsureCache()
         {
             if (Find.World == null || Find.WorldGrid == null) return;
+            // #53: with Societies off, the population smear never runs — the caches read as all-zero, so
+            // GetPopulationAtTile / GetSettlementPopulation / MaxTilePopulation all return 0 with no walk.
+            if (!RegionsAndSocietiesMod.SocietiesEnabled)
+            {
+                int n = Find.WorldGrid.TilesCount;
+                if (cachedTilePopulations == null || cachedTilePopulations.Length != n) cachedTilePopulations = new int[n];
+                else System.Array.Clear(cachedTilePopulations, 0, n);
+                if (cachedTileSourcePopulations == null || cachedTileSourcePopulations.Length != n) cachedTileSourcePopulations = new int[n];
+                else System.Array.Clear(cachedTileSourcePopulations, 0, n);
+                if (cachedTileIsSuburb == null || cachedTileIsSuburb.Length != n) cachedTileIsSuburb = new bool[n];
+                else System.Array.Clear(cachedTileIsSuburb, 0, n);
+                cachedMaxTilePopulation = 0;
+                cacheDirty = false;
+                return;
+            }
             if (cacheDirty || cachedTilePopulations == null || cachedTilePopulations.Length != Find.WorldGrid.TilesCount)
             {
                 RefreshCache();
@@ -474,10 +489,21 @@ namespace RegionsAndSocieties
 
             // NPC settlement: the modeled population grown over time by the birthrate model (#6),
             // seeded and clamped to the settlement's cap by the region manager. Falls back to a static
-            // tech-based estimate only when there is no world/manager (e.g. very early load).
+            // tech-based estimate when there is no world/manager (e.g. very early load), and — #53 — when
+            // Societies is off, so nothing models or grows population; settlement tiers read the static
+            // number instead.
             var mgr = Find.World?.GetComponent<SynapseRegionManager>();
-            if (mgr != null) return mgr.GetModeledSettlementPopulation(settlement);
+            if (mgr != null && RegionsAndSocietiesMod.SocietiesEnabled) return mgr.GetModeledSettlementPopulation(settlement);
 
+            return StaticNpcPopulationEstimate(settlement);
+        }
+
+        /// <summary>A stable population estimate for an NPC settlement from its faction's tech level, with
+        /// no growth model — the value settlement tiers read when Societies is off (#53) or before the
+        /// world/manager exists.</summary>
+        public static int StaticNpcPopulationEstimate(Settlement settlement)
+        {
+            if (settlement == null) return 0;
             int basePop = 50;
             if (settlement.Faction != null)
             {
@@ -486,7 +512,6 @@ namespace RegionsAndSocieties
                 else if (tech == TechLevel.Industrial) basePop = 90;
                 else if (tech >= TechLevel.Spacer) basePop = 150;
             }
-
             System.Random random = new System.Random(settlement.Tile);
             return basePop + random.Next(-10, 20);
         }

@@ -50,7 +50,12 @@ namespace RegionsAndSocieties
             var profile = FactionPlacementSettings.GetProfile(faction.def) ?? FactionPlacementSettings.GetProfile(FactionDefOf.OutlanderCivil);
             if (profile == null) return -1;
 
-            // Score tiles
+            // Score tiles — the same pure rule as worldgen placement (#56): land values from the biome
+            // and hilliness, multiplied by this faction's habitability of the biome (vanilla settlement
+            // weight × toil × health, scaled by tech), cached per biome.
+            int techOrdinal = (int)faction.def.techLevel;
+            var weights = new Placement.PlacementWeights(profile.mineralWeight, profile.nutritionWeight, profile.forageWeight, profile.grazingWeight, profile.huntingWeight, profile.marginWeight);
+            var habitabilityByBiome = new Dictionary<BiomeDef, float>();
             Dictionary<int, float> tileScores = new Dictionary<int, float>();
             for (int t = 0; t < totalTiles; t++)
             {
@@ -65,30 +70,16 @@ namespace RegionsAndSocieties
                     continue;
                 }
 
-                float mineralVal = 0.5f;
-                if (tileData.hilliness == Hilliness.SmallHills) mineralVal = 1.0f;
-                else if (tileData.hilliness == Hilliness.LargeHills) mineralVal = 2.0f;
-                else if (tileData.hilliness == Hilliness.Mountainous) mineralVal = 3.0f;
-
-                float nutritionVal = tileData.PrimaryBiome != null ? tileData.PrimaryBiome.plantDensity : 0.5f;
-                float forageVal = tileData.PrimaryBiome != null ? tileData.PrimaryBiome.forageability : 0.5f;
-                float biomassVal = tileData.PrimaryBiome != null ? BiomeSafe.TreeDensity(tileData.PrimaryBiome) : 0.5f;
-                float grazingVal = (tileData.hilliness == Hilliness.Flat) ? nutritionVal * 2f : nutritionVal;
-                float hospVal = nutritionVal * 2f + forageVal;
-
-                float score = 0f;
-                score += profile.mineralWeight * mineralVal;
-                score += profile.nutritionWeight * nutritionVal;
-                score += profile.forageWeight * forageVal;
-                score += profile.grazingWeight * grazingVal;
-                score += profile.huntingWeight * biomassVal;
-
-                if (profile.marginWeight > 0f)
+                BiomeDef biome = tileData.PrimaryBiome;
+                float habitability = 1f;
+                if (biome != null && !habitabilityByBiome.TryGetValue(biome, out habitability))
                 {
-                    score += profile.marginWeight * Mathf.Max(0f, 3.0f - hospVal);
+                    habitability = Placement.BiomeHabitabilityRules.Habitability(BiomeSafe.Traits(biome), techOrdinal);
+                    habitabilityByBiome[biome] = habitability;
                 }
 
-                tileScores[t] = score;
+                Placement.PlacementTileFeatures f = Placement.BiomeHabitabilityRules.Features(BiomeSafe.Traits(biome), BiomeSafe.HillClass(tileData.hilliness));
+                tileScores[t] = Placement.BiomeHabitabilityRules.Score(f, habitability, weights);
             }
 
             // Score provinces
@@ -124,10 +115,42 @@ namespace RegionsAndSocieties
             // used only a binary touches-at-all flag — it computed shared borders and then ignored them,
             // which is exactly where spidering territories came from.
             var heldIds = new HashSet<int>(factionProvinces.Select(fp => fp.id));
+
+            // #56 crowding: settleable provinces per biome against settlements already in it (the
+            // occupied provinces), so a late placement spreads to the next-best biome instead of
+            // stacking into the richest one.
+            var availableByBiome = new Dictionary<BiomeDef, int>();
+            var settledByBiome = new Dictionary<BiomeDef, int>();
+            foreach (var ap in allProvinces)
+            {
+                if (ap.provinceType != ProvinceType.Land || ap.tiles == null || ap.tiles.Count < 20 || ap.primaryBiome == null) continue;
+                availableByBiome.TryGetValue(ap.primaryBiome, out int avail);
+                availableByBiome[ap.primaryBiome] = avail + 1;
+                if (occupiedProvinces.Contains(ap))
+                {
+                    settledByBiome.TryGetValue(ap.primaryBiome, out int settled);
+                    settledByBiome[ap.primaryBiome] = settled + 1;
+                }
+            }
+
+            // #46 clustering: the faction's bodies so far and its cap; a candidate that would overflow a
+            // body ranks behind every candidate that would not.
+            int clusterCap = Placement.ClusteringRules.Snap(profile.clusterSize);
+            var bodies = new Placement.TerritoryBodies();
+            foreach (var held in factionProvinces)
+            {
+                bodies.Add(held.id, held.borderShares != null ? held.borderShares.Keys : null);
+            }
             var candidates = allProvinces
                 .Where(p => !occupiedProvinces.Contains(p) && provinceScores.ContainsKey(p) && !RegionalOwnershipUtility.IsLooseOwnedByRival(p, faction))
                 .Select(p => {
                     float suitability = provinceScores[p];
+                    if (p.primaryBiome != null)
+                    {
+                        settledByBiome.TryGetValue(p.primaryBiome, out int settledHere);
+                        availableByBiome.TryGetValue(p.primaryBiome, out int availableHere);
+                        suitability *= Placement.BiomeHabitabilityRules.Crowding(settledHere, availableHere);   // #56
+                    }
 
                     float minAllyDist = 9999f;
                     if (factionProvinces.Any())
@@ -147,17 +170,29 @@ namespace RegionsAndSocieties
                         Placement.CompactnessRules.DefaultDesiredRatio,
                         FactionPlacementSettings.territoryCompactness);
 
-                    return new { Province = p, Score = suitability, Effective = effective, IsAdjacent = isAdjacent, Dist = minAllyDist };
+                    // #46: the body this province would form, whether it stays within the cap, and — for a
+                    // new body — the distance to the nearest existing body (minAllyDist), so a new cluster
+                    // is not opened right next to another.
+                    int mergedSize = bodies.MergedSizeIfAdded(p.borderShares != null ? p.borderShares.Keys : null);
+                    bool withinCap = Placement.ClusteringRules.WithinCap(mergedSize, clusterCap);
+                    bool extends = mergedSize > 1;
+                    float nearestBody = extends || !factionProvinces.Any() ? -1f : minAllyDist;
+                    int placementClass = Placement.ClusteringRules.PlacementClass(
+                        withinCap, extends, Placement.ClusteringRules.FarEnoughForNewBody(nearestBody));
+
+                    return new { Province = p, Score = suitability, Effective = effective, IsAdjacent = isAdjacent, Dist = minAllyDist, PlacementClass = placementClass };
                 })
                 .ToList();
 
             if (!candidates.Any()) return -1;
 
-            // Sort candidates: adjacent first if we have existing provinces, then the shape-bent score.
+            // Sort candidates: within the cluster cap first (#46), then adjacent first if we have existing
+            // provinces, then the shape-bent score.
             var sorted = candidates.AsEnumerable();
             if (factionProvinces.Any())
             {
-                sorted = sorted.OrderByDescending(x => x.IsAdjacent ? 1 : 0)
+                sorted = sorted.OrderBy(x => x.PlacementClass)   // #46: extend, spaced new body, crowded new body, overflow
+                               .ThenByDescending(x => x.IsAdjacent ? 1 : 0)
                                .ThenByDescending(x => x.Effective)
                                .ThenBy(x => x.Dist);
             }

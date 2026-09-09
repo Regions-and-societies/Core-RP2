@@ -22,6 +22,7 @@ namespace RegionsAndSocieties.Demographics
         /// </summary>
         public static void BeginDraft(int regionId, float femaleDelta, string tag = "draft")
         {
+            if (!RegionsAndSocietiesMod.SocietiesEnabled) return;   // #53: Societies off — the seam is inert but safe to call
             RegionDemographicsStress.SkewSexRatio(regionId, femaleDelta, durationTicks: 0, tag: tag);
         }
 
@@ -29,6 +30,7 @@ namespace RegionsAndSocieties.Demographics
         /// all sex skews when tag is null). The ratio returns to baseline immediately.</summary>
         public static void EndDraft(int regionId, string tag = "draft")
         {
+            if (!RegionsAndSocietiesMod.SocietiesEnabled) return;   // #53
             RegionDemographicsStress.ClearSexSkew(regionId, tag);
         }
 
@@ -40,6 +42,7 @@ namespace RegionsAndSocieties.Demographics
         /// </summary>
         public static void RecordCombatLosses(int regionId, int maleDeaths, int femaleDeaths)
         {
+            if (!RegionsAndSocietiesMod.SocietiesEnabled) return;   // #53
             RegionDemographicsStress.RecordCombatLosses(regionId, maleDeaths, femaleDeaths);
         }
 
@@ -51,6 +54,7 @@ namespace RegionsAndSocieties.Demographics
         /// </summary>
         public static void SkewSexRatio(int regionId, float femaleDelta, int durationTicks = 0, string tag = null)
         {
+            if (!RegionsAndSocietiesMod.SocietiesEnabled) return;   // #53
             RegionDemographicsStress.SkewSexRatio(regionId, femaleDelta, durationTicks, tag);
         }
 
@@ -58,6 +62,7 @@ namespace RegionsAndSocieties.Demographics
         /// = more female than the deterministic baseline). Zero when nothing stresses it.</summary>
         public static float CurrentFemaleDelta(int regionId)
         {
+            if (!RegionsAndSocietiesMod.SocietiesEnabled) return 0f;   // #53
             return RegionDemographicsStress.CurrentFemaleDelta(regionId);
         }
     }

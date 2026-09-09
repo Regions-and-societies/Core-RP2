@@ -714,6 +714,38 @@ namespace RegionsAndSocieties.Integration
             sb.AppendLine("=== R&T border-first partition audit (#20) ===");
             sb.AppendLine($"coverage: {assignedLand}/{usableLand} usable land tiles assigned"
                 + (usableLand > 0 ? $" ({100.0 * assignedLand / usableLand:0.0}%)" : ""));
+            sb.AppendLine($"unassigned usable land tiles (dropped/holes, #51)={usableLand - assignedLand}");
+
+            // Water-body summary (#48): after SplitInlandLakes, no enclosed body below the cap should
+            // survive — an inland lake that touches no other water is shared out across its shores, only
+            // an above-cap inland sea (or a body open to the ocean) stays a water province.
+            int oceanProvs = 0, lakeProvs = 0, inlandBelowCap = 0;
+            foreach (var p in mgr.Provinces)
+            {
+                if (p.tiles == null || p.tiles.Count == 0) continue;
+                if (p.provinceType == ProvinceType.Ocean) oceanProvs++;
+                else if (p.provinceType == ProvinceType.Lake) lakeProvs++;
+                else continue;
+
+                if (p.tiles.Count > Partition.LakeSplitRules.LakeMaxTiles) continue;
+                bool touchesOtherWater = false;
+                foreach (int t in p.tiles)
+                {
+                    neighbors.Clear();
+                    grid.GetTileNeighbors(t, neighbors);
+                    foreach (var n in neighbors)
+                    {
+                        int npid = mgr.GetProvinceId(n.tileId);
+                        if (npid < 0 || npid == p.id) continue;
+                        var np = mgr.Provinces.FirstOrDefault(x => x.id == npid);
+                        if (np != null && (np.provinceType == ProvinceType.Ocean || np.provinceType == ProvinceType.Lake))
+                        { touchesOtherWater = true; break; }
+                    }
+                    if (touchesOtherWater) break;
+                }
+                if (!touchesOtherWater) inlandBelowCap++;
+            }
+            sb.AppendLine($"water provinces: ocean={oceanProvs} lake={lakeProvs}; enclosed below cap (#48 target 0)={inlandBelowCap}");
 
             if (landSizes.Count == 0)
             {
@@ -1193,7 +1225,7 @@ namespace RegionsAndSocieties.Integration
         {
             if (!UnityData.IsInMainThread) return "must run on the main thread";
             if (Find.World == null) return "no world loaded";
-            return OutpostSeedingUtility.SeedOutposts().ToReport().TrimEnd();
+            return HoldingSeedingUtility.SeedHoldings().ToReport().TrimEnd();
         }
 
         /// <summary>
@@ -1438,6 +1470,241 @@ namespace RegionsAndSocieties.Integration
                 string memeStr = string.Join(", ", topMemes);
                 if (!string.IsNullOrEmpty(memeStr)) sb.AppendLine($"   top memes: {memeStr}");
             }
+            return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// #56: where NPC settlements landed against where they could have, per biome. Each row gives
+        /// the biome's share of settleable land tiles and of settleable provinces (the availability), the
+        /// settlement count and share per tech tier (pre-industrial / industrial / spacer+), and the
+        /// habitability the placement rule assigns that biome at each tier — so "evenly split" is judged
+        /// against what was on offer, and a biome with no settlements can be read as shunned or as absent.
+        /// </summary>
+        public static string SettlementBiomeDistributionReport()
+        {
+            if (!UnityData.IsInMainThread) return "must run on the main thread";
+            if (Find.World == null || Find.WorldGrid == null || Find.WorldObjects == null) return "no world loaded";
+
+            WorldGrid grid = Find.WorldGrid;
+            var mgr = Find.World.GetComponent<SynapseRegionManager>();
+
+            var landTiles = new Dictionary<BiomeDef, int>();
+            int landTotal = 0;
+            for (int t = 0; t < grid.TilesCount; t++)
+            {
+                Tile tile = grid[t];
+                if (tile == null || tile.WaterCovered || tile.hilliness == Hilliness.Impassable) continue;
+                BiomeDef b = tile.PrimaryBiome;
+                if (b == null || b.impassable || b.defName == "SeaIce") continue;
+                landTiles.TryGetValue(b, out int c); landTiles[b] = c + 1;
+                landTotal++;
+            }
+
+            var provinces = new Dictionary<BiomeDef, int>();
+            int provinceTotal = 0;
+            if (mgr?.Provinces != null)
+            {
+                foreach (var p in mgr.Provinces)
+                {
+                    if (p == null || p.provinceType != ProvinceType.Land || p.tiles == null || p.tiles.Count < 20 || p.primaryBiome == null) continue;
+                    provinces.TryGetValue(p.primaryBiome, out int c); provinces[p.primaryBiome] = c + 1;
+                    provinceTotal++;
+                }
+            }
+
+            const int Tiers = 3;   // 0 pre-industrial, 1 industrial, 2 spacer+
+            var settlements = new Dictionary<BiomeDef, int[]>();
+            var tierTotals = new int[Tiers];
+            foreach (var o in Find.WorldObjects.AllWorldObjects)
+            {
+                if (o?.Faction == null || o.Faction.IsPlayer) continue;
+                if (WorldObjectClassifier.Classify(o) != WorldObjectKind.Settlement) continue;
+                if (!o.Tile.Valid || !o.Tile.Layer.IsRootSurface) continue;
+                BiomeDef b = grid[o.Tile]?.PrimaryBiome;
+                if (b == null) continue;
+                int tech = (int)(o.Faction.def?.techLevel ?? TechLevel.Industrial);
+                int tier = tech >= Placement.BiomeHabitabilityRules.TechSpacer ? 2 : tech >= Placement.BiomeHabitabilityRules.TechIndustrial ? 1 : 0;
+                if (!settlements.TryGetValue(b, out int[] counts)) { counts = new int[Tiers]; settlements[b] = counts; }
+                counts[tier]++;
+                tierTotals[tier]++;
+            }
+
+            var biomes = new HashSet<BiomeDef>(landTiles.Keys);
+            foreach (var b in settlements.Keys) biomes.Add(b);
+            var rows = biomes.ToList();
+            rows.Sort((a, b) => { landTiles.TryGetValue(a, out int la); landTiles.TryGetValue(b, out int lb); return lb.CompareTo(la); });
+
+            var sb = new StringBuilder();
+            sb.AppendLine("=== R&S settlement biome distribution (#56) ===");
+            sb.AppendLine($"land tiles {landTotal}, settleable provinces {provinceTotal}, NPC settlements pre-industrial {tierTotals[0]} / industrial {tierTotals[1]} / spacer+ {tierTotals[2]}");
+            sb.AppendLine("biome                     land%  prov%  | pre-ind      industrial   spacer+     | habitability pre/ind/spc");
+            foreach (BiomeDef b in rows)
+            {
+                landTiles.TryGetValue(b, out int lt);
+                provinces.TryGetValue(b, out int pc);
+                settlements.TryGetValue(b, out int[] sc);
+                sc = sc ?? new int[Tiers];
+                var traits = BiomeSafe.Traits(b);
+                string tierCell(int i)
+                {
+                    float share = tierTotals[i] > 0 ? (float)sc[i] / tierTotals[i] : 0f;
+                    return $"{sc[i],3} ({share,4:P0})";
+                }
+                sb.AppendLine($"{b.defName,-25} {(landTotal > 0 ? (float)lt / landTotal : 0f),5:P0}  {(provinceTotal > 0 ? (float)pc / provinceTotal : 0f),5:P0}  | {tierCell(0)}   {tierCell(1)}   {tierCell(2)}  | "
+                    + $"{Placement.BiomeHabitabilityRules.Habitability(traits, 2):0.00}/{Placement.BiomeHabitabilityRules.Habitability(traits, 4):0.00}/{Placement.BiomeHabitabilityRules.Habitability(traits, 5):0.00}"
+                    + $"   (weight {traits.SettlementSelectionWeight:0.00}, move {traits.MovementDifficulty:0.#}, disease {traits.DiseaseMtbDays:0}d)");
+            }
+            return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// #46: how each NPC faction's territory clusters — its cluster cap, how many land-connected
+        /// bodies its provinces form, and the largest — read from the provinces that carry the faction's
+        /// id (set when its settlements were placed). A body larger than the cap means the overflow
+        /// fallback fired (nothing within the cap was left); the worldgen log line per faction says how
+        /// many picks that was.
+        /// </summary>
+        public static string PlacementClusteringReport()
+        {
+            if (!UnityData.IsInMainThread) return "must run on the main thread";
+            if (Find.World == null || Find.FactionManager == null) return "no world loaded";
+            var mgr = Find.World.GetComponent<SynapseRegionManager>();
+            if (mgr?.Provinces == null) return "no provinces";
+
+            // The cap governs where SETTLEMENTS go, so the bodies that matter are the provinces that hold
+            // one of the faction's settlements. Territory (every province carrying the faction's claim id)
+            // spreads around those by the ownership model and is reported alongside for context.
+            var settlementProvinces = new Dictionary<Faction, HashSet<int>>();
+            if (Find.WorldObjects != null)
+            {
+                foreach (var o in Find.WorldObjects.AllWorldObjects)
+                {
+                    if (o?.Faction == null || o.Faction.IsPlayer) continue;
+                    if (WorldObjectClassifier.Classify(o) != WorldObjectKind.Settlement) continue;
+                    var p = mgr.GetProvinceForTile(o.Tile);
+                    if (p == null) continue;
+                    if (!settlementProvinces.TryGetValue(o.Faction, out var set)) { set = new HashSet<int>(); settlementProvinces[o.Faction] = set; }
+                    set.Add(p.id);
+                }
+            }
+            var byId = new Dictionary<int, GeographicProvince>();
+            foreach (var p in mgr.Provinces) if (p != null) byId[p.id] = p;
+
+            var sb = new StringBuilder();
+            sb.AppendLine("=== R&S placement clustering (#46) ===");
+            sb.AppendLine("settlement bodies = land-connected provinces holding the faction's settlements (what the cap governs); territory = provinces carrying its claim");
+            sb.AppendLine("faction                          kind        cap    settlements  bodies  largest  over cap?   | territory provinces  bodies  largest");
+            var rows = new List<(Faction f, int cap, int settlements, int bodies, int largest, int terrProv, int terrBodies, int terrLargest)>();
+            foreach (Faction f in Find.FactionManager.AllFactionsListForReading)
+            {
+                if (f == null || f.IsPlayer || f.def == null || f.def.hidden) continue;
+                var bodies = new Placement.TerritoryBodies();
+                if (settlementProvinces.TryGetValue(f, out var held))
+                {
+                    foreach (int pid in held)
+                    {
+                        byId.TryGetValue(pid, out var p);
+                        bodies.Add(pid, p?.borderShares != null ? p.borderShares.Keys : null);
+                    }
+                }
+                string id = f.GetUniqueLoadID();
+                var territory = new Placement.TerritoryBodies();
+                foreach (var p in mgr.Provinces)
+                {
+                    if (p?.owningFactionIds == null || !p.owningFactionIds.Contains(id)) continue;
+                    territory.Add(p.id, p.borderShares != null ? p.borderShares.Keys : null);
+                }
+                if (bodies.ProvinceCount == 0 && territory.ProvinceCount == 0) continue;
+                var profile = FactionPlacementSettings.GetProfile(f.def);
+                int cap = Placement.ClusteringRules.Snap(profile != null ? profile.clusterSize : 0);
+                rows.Add((f, cap, bodies.ProvinceCount, bodies.Count, bodies.Largest, territory.ProvinceCount, territory.Count, territory.Largest));
+            }
+            rows.Sort((a, b) => a.cap != b.cap ? a.cap.CompareTo(b.cap) : b.settlements.CompareTo(a.settlements));
+            foreach (var r in rows)
+            {
+                var kind = Placement.ClusteringRules.ClassifyKind(r.f.def.defName, r.f.def.label, (int)r.f.def.techLevel, r.f.def.permanentEnemy, r.f.def.hostileToFactionlessHumanlikes);
+                bool over = !Placement.ClusteringRules.WithinCap(r.largest, r.cap);
+                sb.AppendLine($"{r.f.Name,-32} {kind,-11} {Placement.ClusteringRules.Label(r.cap),-6} {r.settlements,11}  {r.bodies,6}  {r.largest,7}  {(over ? "OVER" : "ok"),-10}  | {r.terrProv,19}  {r.terrBodies,6}  {r.terrLargest,7}");
+            }
+            if (rows.Count == 0) sb.AppendLine("  (no faction holds provinces)");
+            return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// #47: the placement-share acceptance report — per faction, its share weight, the normalised %,
+        /// the estimated territory count (largest-remainder apportionment of the placed total, the same
+        /// arithmetic the settings dialog shows), and the actual number of settlements it received. A share
+        /// of 40% should line up with ≈ 40% of the placed provinces (±1), which this makes checkable
+        /// headlessly after worldgen.
+        /// </summary>
+        public static string PlacementShareReport()
+        {
+            if (!UnityData.IsInMainThread) return "must run on the main thread";
+            if (Find.World == null || Find.FactionManager == null) return "no world loaded";
+            var mgr = Find.World.GetComponent<SynapseRegionManager>();
+            if (mgr?.Provinces == null) return "no provinces";
+
+            // Actual settlements per faction (the placed result the shares were meant to distribute).
+            var actualByFaction = new Dictionary<Faction, int>();
+            if (Find.WorldObjects != null)
+            {
+                foreach (var o in Find.WorldObjects.AllWorldObjects)
+                {
+                    if (o?.Faction == null || o.Faction.IsPlayer) continue;
+                    if (WorldObjectClassifier.Classify(o) != WorldObjectKind.Settlement) continue;
+                    actualByFaction.TryGetValue(o.Faction, out int n);
+                    actualByFaction[o.Faction] = n + 1;
+                }
+            }
+
+            // The share is a per-FactionDef weight, so the acceptance ("share 40% → ≈40% of placed") is a
+            // per-def property. Aggregate by def: #57 splits one placed faction into several kin factions
+            // that all carry the parent's def (and therefore its share), so a per-instance row would show
+            // each kin claiming the whole def share and its own subset count — misleading. Grouping by def
+            // sums those subsets back into the one share the player actually set.
+            var defs = new List<FactionDef>();
+            var defWeight = new Dictionary<FactionDef, float>();
+            var defActual = new Dictionary<FactionDef, int>();
+            var defInstances = new Dictionary<FactionDef, int>();
+            foreach (var f in Find.FactionManager.AllFactionsListForReading)
+            {
+                if (f == null || f.IsPlayer || f.def == null || f.def.hidden) continue;
+                if (!defWeight.ContainsKey(f.def))
+                {
+                    defs.Add(f.def);
+                    var prof = FactionPlacementSettings.GetProfile(f.def);
+                    defWeight[f.def] = prof != null && prof.placementShare > 0f ? prof.placementShare : FactionPlacementSettings.DefaultShare(f.def);
+                    defActual[f.def] = 0;
+                    defInstances[f.def] = 0;
+                }
+                defInstances[f.def]++;
+                actualByFaction.TryGetValue(f, out int fActual);
+                defActual[f.def] += fActual;
+            }
+
+            var weights = new List<float>();
+            float totalWeight = 0f;
+            foreach (var d in defs) { weights.Add(defWeight[d]); totalWeight += defWeight[d]; }
+
+            int landRegions = mgr.Provinces.Count(p => p != null && p.provinceType == ProvinceType.Land && p.tiles != null && p.tiles.Count > 0);
+            int placedTotal = Placement.PlacementShareRules.PlacedTotal(landRegions, FactionPlacementSettings.claimedLandAreaPercent);
+            int[] estimates = Placement.PlacementShareRules.Apportion(weights, placedTotal);
+            int actualTotal = actualByFaction.Values.Sum();
+
+            var sb = new StringBuilder();
+            sb.AppendLine("=== R&S placement share report (#47) ===");
+            sb.AppendLine($"land regions={landRegions}, claimed land area={UnityEngine.Mathf.RoundToInt(FactionPlacementSettings.claimedLandAreaPercent * 100f)}%, territories placed (est)={placedTotal}, actual settlements={actualTotal}");
+            sb.AppendLine("grouped by faction def (a def's share is split among its #57 kin, so kin are summed back)");
+            sb.AppendLine("faction def                      kin   share%   norm%    est    actual   delta");
+            for (int i = 0; i < defs.Count; i++)
+            {
+                var d = defs[i];
+                float normPct = Placement.PlacementShareRules.NormalizedFraction(weights[i], totalWeight) * 100f;
+                int actual = defActual[d];
+                int est = estimates[i];
+                sb.AppendLine($"{d.defName,-32} {defInstances[d],3}   {UnityEngine.Mathf.RoundToInt(weights[i]),5}   {normPct,5:0.0}   {est,4}   {actual,6}   {actual - est,5}");
+            }
+            if (defs.Count == 0) sb.AppendLine("  (no NPC factions)");
             return sb.ToString().TrimEnd();
         }
 
