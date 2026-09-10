@@ -11,13 +11,7 @@ Install the matching patch and that mod's factions, settlements and events stay 
 [/list]
 [b]Alternative edition:[/b] not using Realistic Planets 2? Install [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3784666060]Regions and Societies (Map Mode Framework)[/url] instead of this one.
 
-[img]https://i.imgur.com/3IDStji.png[/img]
-[img]https://i.imgur.com/8c3WO4b.jpeg[/img]
-[img]https://i.imgur.com/vwCxQFW.png[/img]
-[img]https://i.imgur.com/43qG8fR.jpeg[/img]
-[img]https://i.imgur.com/73PdRWF.jpeg[/img]
-[img]https://i.imgur.com/5kQLoJd.png[/img]
-[img]https://i.imgur.com/VrUskKy.png[/img]
+[img]https://raw.githubusercontent.com/Regions-and-societies/Core-MMF/main/workshop-page/0.4.0/rs040-merged.png[/img]
 
 [h1]Regions and Societies — Realistic Planets 2 Edition[/h1]
 [b][url=https://github.com/Regions-and-societies/Core-MMF/wiki]Official Wiki and Documentation[/url][/b]
