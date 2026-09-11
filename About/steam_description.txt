@@ -1,5 +1,5 @@
 [b]Discord Community:[/b] [url=https://discord.gg/eVBebZ2N9s]https://discord.gg/eVBebZ2N9s[/url]
-[b]Version:[/b] v0.4.0 (Target: RimWorld 1.6)
+[b]Version:[/b] v0.4.1 (Target: RimWorld 1.6)
 
 [h2]Compatibility Patches[/h2]
 Install the matching patch and that mod's factions, settlements and events stay in sync with each region's demographics, ownership and population:
@@ -39,25 +39,13 @@ Most of the work happens at world generation: region borders are drawn and facti
 
 ---
 
-[h2]Changelog (v0.4.0) - Map & Placement[/h2]
-The world map is redrawn to follow the land, and factions settle it with character. A new-game [b]Geographic Placement[/b] dialog puts territory shares, clustering and kin in your hands.
-[b]The map follows the land[/b]
+[h2]Changelog (v0.4.1) - Placement Defaults & Clustering Fix[/h2]
+A bug-fix patch on 0.4.0, focused on how factions cluster and claim territory.
 [list]
-[*] [b]Inland lakes[/b] are shared between their shores instead of ringing themselves with a border; [b]small islands[/b] join the mainland, and island chains (30+ tiles) form archipelago regions.
-[*] [b]Tiny slivers[/b] are folded into a neighbour or dropped when isolated (or kept, with an option); [b]mountain passes and land bridges[/b] read as borders instead of letting a region span two places.
-[*] [b]Rounder regions[/b] (relaxed-honeycomb default; 0.3.0 and 0.2.x still selectable) and one [b]Target region size[/b] knob with a per-biome editor.
-[/list]
-[b]Factions settle with character[/b]
-[list]
-[*] [b]Habitability-driven placement[/b] weighs a biome's real liveability and avoids crowding, so raiders stop homesteading on the ice.
-[*] [b]Per-faction clustering[/b] (sprawl, a set number of footholds, or scatter) and [b]regional kin sub-factions[/b] that split a scattered low-tech people into compass-named kin.
-[*] [b]Ownership earns its walls:[/b] a faction holding half a region counts its coasts, rock and ridges as a secure border.
-[/list]
-[b]Setup, control and performance[/b]
-[list]
-[*] The [b]Geographic Placement[/b] dialog sets each faction's share of the world before you generate it, with a live region-count estimate, a share pie and hostility dots.
-[*] A [b]Societies master toggle[/b] disables the whole population/demographics/economy layer; a [b]World maturity[/b] slider and mid-game [b]region lock[/b] govern seeded holdings and rival-territory settling.
-[*] Worlds reproduce from a seed (stamped [b]Worldgen: v0.4.0[/b]); existing saves keep their map. [b]World generation's partition step is ~28x faster[/b] - a measured world dropped from ~82 seconds to under 3, with an identical map.
+[*] The [b]shattered Empire[/b] now generates as intended: many small clusters of 1-3 regions scattered across the whole planet, as a single highly-fragmented faction, instead of one giant contiguous nation. Its FactionDef is untouched, so mods built on the Empire are unaffected.
+[*] [b]Clustering and regional kin are now separate.[/b] A faction that does not form kin still scatters into clusters - it just stays one faction. Kin-forming factions (tribes, rough unions, low-tech pirates) are unchanged.
+[*] [b]Spacer-tech factions default to no regional kin[/b] - pod and shuttle mobility means distance does not fracture them. They still scatter into clusters; you can turn kin back on per faction.
+[*] Placement dialog: [b]"Number of clusters" is renamed "Max kin factions"[/b] (it caps kin factions, not map clusters), and [b]"Min cluster size" is renamed "Cluster size"[/b] (the largest a cluster grows, applied whether or not the faction forms kin; 0 = one nation). The Empire's kin toggle is locked off.
 [/list]
 
 [b]Full version history:[/b] [url=https://github.com/Regions-and-societies/Core-MMF/wiki/Changelog]github.com/Regions-and-societies/Core-MMF/wiki[/url]

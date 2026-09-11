@@ -280,19 +280,25 @@ namespace RegionsAndSocieties
             return Placement.PlacementShareRules.MigrateRangeToShareWeight(d.baseCountRange.min, d.baseCountRange.max);
         }
 
-        /// <summary>The kin default for a faction kind: scattered low-tech factions (pirates, tribes, rough
-        /// unions) form regional kin by default; the Empire and cohesive civilisations do not, but a player
-        /// can turn kin on for any faction per-faction.</summary>
+        /// <summary>The kin default for a faction (#63/#64): scattered low-tech factions (pirates, tribes,
+        /// rough unions) form regional kin by default; the Empire never does (locked), spacer-tech factions
+        /// default off (they still cluster), and a player can turn kin on for any non-Empire faction. The
+        /// decision itself is the pure <see cref="Placement.SubFactionRules.KinDefault"/>.</summary>
         public static bool KinEnabledDefault(FactionDef def)
         {
             if (def == null) return false;
             var kind = Placement.ClusteringRules.ClassifyKind(def.defName, def.label, (int)def.techLevel, def.permanentEnemy, def.hostileToFactionlessHumanlikes);
-            return Placement.SubFactionRules.IsSplittableKind(kind);
+            return Placement.SubFactionRules.KinDefault(kind, (int)def.techLevel, IsEmpire(def));
         }
 
-        /// <summary>Whether this faction forms regional kin — the per-faction choice, else the kind default.</summary>
+        /// <summary>Whether kin is locked off (not player-overridable) for this faction — the Empire (#63).</summary>
+        public static bool KinLocked(FactionDef def) => Placement.SubFactionRules.KinLocked(IsEmpire(def));
+
+        /// <summary>Whether this faction forms regional kin — the per-faction choice, else the kind default.
+        /// A locked faction (the Empire) is always off, whatever a stray override says.</summary>
         public static bool EffectiveEnableKin(FactionPlacementProfile p, FactionDef def)
         {
+            if (KinLocked(def)) return false;
             if (p == null) return KinEnabledDefault(def);
             return p.enableKinRaw >= 0 ? p.enableKinRaw == 1 : KinEnabledDefault(def);
         }

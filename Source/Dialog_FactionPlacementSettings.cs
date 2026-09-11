@@ -363,11 +363,22 @@ namespace RegionsAndSocieties
                 // ≈ regions this faction receives under the current mode (matches the pie); guaranteed ≥ 1.
                 int est = fi < dist.Length ? dist[fi] : 0;
 
-                // Kin checkbox + the kin-faction count (→ N) — drawn FIRST (left of the region column).
+                // Kin checkbox + the kin-faction count (→ N) — drawn FIRST (left of the region column). The
+                // Empire's kin is locked off (#63): it stays one faction (however scattered), so its box is
+                // disabled.
+                bool kinLocked = FactionPlacementSettings.KinLocked(def);
                 bool kinOn = FactionPlacementSettings.EffectiveEnableKin(profile, def);
-                bool kinBefore = kinOn;
-                Widgets.Checkbox(kinCheckX, rowRect.y + 2f, ref kinOn, 22f);
-                if (kinOn != kinBefore) profile.enableKinRaw = kinOn ? 1 : 0;
+                if (kinLocked)
+                {
+                    bool locked = false;
+                    Widgets.Checkbox(kinCheckX, rowRect.y + 2f, ref locked, 22f, disabled: true);
+                }
+                else
+                {
+                    bool kinBefore = kinOn;
+                    Widgets.Checkbox(kinCheckX, rowRect.y + 2f, ref kinOn, 22f);
+                    if (kinOn != kinBefore) profile.enableKinRaw = kinOn ? 1 : 0;
+                }
                 int clustersCfg = FactionPlacementSettings.EffectiveClusterCount(profile, def);
                 int kinCount = kinOn ? Placement.SubFactionRules.PlannedKinCount(est, clustersCfg, profile.clusterSize) : 1;
                 bool actuallySplits = kinOn && kinCount >= 2;
@@ -376,11 +387,13 @@ namespace RegionsAndSocieties
                     actuallySplits ? $"→ <color=cyan>{kinCount}</color>" : "→ 1");
                 GUI.color = Color.white;
                 TooltipHandler.TipRegion(new Rect(kinCheckX, rowRect.y, 66f, rowRect.height - 4f),
-                    actuallySplits
-                        ? $"Kin on: this faction's ~{est} regions split into {kinCount} kin factions (up to {clustersCfg} clusters, each at least {profile.clusterSize} regions — set in Advanced)."
-                        : kinOn
-                            ? $"Kin is on, but this faction resolves to a single cluster (≈{est} regions, min {profile.clusterSize} per cluster), so it stays ONE faction. Give it more land or raise its cluster count (Advanced)."
-                            : "Kin is off — this faction stays whole.");
+                    kinLocked
+                        ? $"The Empire never forms kin — it stays one faction, but scatters into small clusters (cluster size {Placement.ClusteringRules.Label(profile.clusterSize)}, set in Advanced)."
+                        : actuallySplits
+                            ? $"Kin on: this faction's ~{est} regions split into {kinCount} kin factions (up to {clustersCfg} max — set in Advanced)."
+                            : kinOn
+                                ? $"Kin is on, but this faction resolves to a single cluster (≈{est} regions), so it stays ONE faction. Give it more land or raise its cluster count (Advanced)."
+                                : "Kin is off — this faction stays whole (it may still scatter into clusters).");
 
                 // Region column: total regions, and when it splits, the per-kin faction size in parentheses.
                 int perKin = actuallySplits ? Mathf.Max(1, Mathf.RoundToInt((float)est / kinCount)) : est;
@@ -461,7 +474,7 @@ namespace RegionsAndSocieties
                 float halfW = boxRect.width / 2f - 15f;
                 float leftX = 10f, rightX = boxRect.width / 2f + 5f;
                 float rowAy = curY + 180f, rowBy = curY + 210f;
-                bool empireFixed = FactionPlacementSettings.IsEmpire(def);
+                bool kinLocked = FactionPlacementSettings.KinLocked(def);   // #63: the Empire
 
                 // Row A left — Relative size (weight).
                 Rect shareLabelRect = new Rect(leftX, rowAy, halfW - 62f, 24f);
@@ -475,25 +488,40 @@ namespace RegionsAndSocieties
                 tableBuffers[rkey] = rbuf;
                 profile.placementShare = rc;
 
-                // Row A right — Regional kin toggle.
+                // Row A right — Regional kin toggle. The Empire is locked off (#63): it stays one polity,
+                // however fragmented, and many mods base off it — but it still scatters (cluster size below).
                 Rect kinRect = new Rect(rightX, rowAy, halfW, 24f);
                 bool kinOn = FactionPlacementSettings.EffectiveEnableKin(profile, def);
-                bool kinBefore = kinOn;
-                Widgets.CheckboxLabeled(kinRect, "Split into regional kin", ref kinOn, placeCheckboxNearText: true);
-                if (kinOn != kinBefore) profile.enableKinRaw = kinOn ? 1 : 0;
-                TooltipHandler.TipRegion(kinRect,
-                    "When on, this faction's territory is divided into geographically separate kin factions (loosely-related, not merged). " +
-                    "How many is set by the two knobs below. Default on for scattered low-tech factions (pirates, tribes, rough unions), off for cohesive civilisations.");
+                if (kinLocked)
+                {
+                    bool locked = false;
+                    Widgets.CheckboxLabeled(kinRect, "Split into regional kin", ref locked, disabled: true, placeCheckboxNearText: true);
+                    TooltipHandler.TipRegion(kinRect,
+                        "The Empire is a single, highly-fragmented polity — it never splits into regional kin. It still scatters into small clusters all over the map; set how small with the cluster size on the right.");
+                }
+                else
+                {
+                    bool kinBefore = kinOn;
+                    Widgets.CheckboxLabeled(kinRect, "Split into regional kin", ref kinOn, placeCheckboxNearText: true);
+                    if (kinOn != kinBefore) profile.enableKinRaw = kinOn ? 1 : 0;
+                    TooltipHandler.TipRegion(kinRect,
+                        "When on, this faction's territory is divided into geographically separate kin factions (loosely-related, not merged). " +
+                        "How many is capped by 'Max kin factions' below. Default on for scattered low-tech factions (pirates, tribes, rough unions), off for the Empire and spacer-tech factions.");
+                }
 
-                // Row B left — Number of clusters (equal division / max kin). Empire is pinned to 1.
+                // Row B left — Max kin factions (the kin cap; field is numberOfClusters). Only meaningful
+                // when kin is ON; greyed and inert otherwise (the Empire, and any faction with kin off),
+                // which is where the scatter is set by cluster size instead. NOTE: this caps KIN FACTIONS,
+                // not the physical clusters on the map (those are ~regions/clusterSize) — the old "Number of
+                // clusters" label conflated the two and misled players (0.4.1 rename).
                 Rect clustersLabelRect = new Rect(leftX, rowBy, halfW - 62f, 24f);
-                bool zeroClusters = !empireFixed && FactionPlacementSettings.EffectiveClusterCount(profile, def) == 0;
-                GUI.color = empireFixed ? new Color(0.6f, 0.6f, 0.6f) : (zeroClusters ? new Color(1f, 0.7f, 0.3f) : Color.white);
-                Widgets.Label(clustersLabelRect, empireFixed ? "Clusters: 1 (Empire)" : "Number of clusters:");
+                bool zeroClusters = kinOn && FactionPlacementSettings.EffectiveClusterCount(profile, def) == 0;
+                GUI.color = !kinOn ? new Color(0.6f, 0.6f, 0.6f) : (zeroClusters ? new Color(1f, 0.7f, 0.3f) : Color.white);
+                Widgets.Label(clustersLabelRect, "Max kin factions:");
                 GUI.color = Color.white;
                 TooltipHandler.TipRegion(clustersLabelRect,
-                    "How many kin factions this faction divides into (equal division) — the maximum kin cap. 0 = no cap: one cluster per 'minimum cluster size' worth of regions (with a minimum size of 1 that is EVERY region its own faction). Defaults: pirates 5, tribes 3, rough unions 2, cohesive 1. The Empire is always 1.");
-                if (!empireFixed)
+                    "The most kin factions this faction splits into — only applies when 'Split into regional kin' is on. This does NOT set the number of clusters on the map (that comes from the cluster size); it just caps how many separate factions those clusters are grouped into. 0 = no cap. Defaults: pirates 5, tribes 3, rough unions 2.");
+                if (kinOn)
                 {
                     int nc = FactionPlacementSettings.EffectiveClusterCount(profile, def);
                     string nkey = def.defName + ":adv_nc";
@@ -502,16 +530,21 @@ namespace RegionsAndSocieties
                     tableBuffers[nkey] = nbuf;
                     profile.numberOfClusters = nc;
                 }
+                else
+                {
+                    tableBuffers.Remove(def.defName + ":adv_nc");
+                }
 
-                // Row B right — Minimum cluster size (min regions per kin faction).
+                // Row B right — Cluster size: the largest a single contiguous cluster (body) grows. Applies
+                // ALWAYS (kin on or off), so it is the knob that scatters the Empire. 0 = one nation.
                 Rect minLabelRect = new Rect(rightX, rowBy, halfW - 62f, 24f);
-                Widgets.Label(minLabelRect, "Min cluster size:");
+                Widgets.Label(minLabelRect, "Cluster size:");
                 TooltipHandler.TipRegion(minLabelRect,
-                    "The fewest regions a cluster must have to become its own kin faction — clamps the division so tiny scraps don't each spawn a faction. Defaults: pirates 3, tribes 5, rough unions 7.");
+                    "The largest a single contiguous cluster (body) grows — the faction scatters into bodies of at most this many regions, whether or not it forms kin. 0 = one nation (no scatter). Defaults: pirates & Empire 3, tribes 5, rough unions 7, cohesive factions none.");
                 int cl = Placement.ClusteringRules.Snap(profile.clusterSize);
                 string ckey = def.defName + ":adv_cl";
                 if (!tableBuffers.TryGetValue(ckey, out var cbuf)) cbuf = cl.ToString();
-                Widgets.TextFieldNumeric(new Rect(rightX + halfW - 56f, rowBy, 52f, 24f), ref cl, ref cbuf, 1f, 99f);
+                Widgets.TextFieldNumeric(new Rect(rightX + halfW - 56f, rowBy, 52f, 24f), ref cl, ref cbuf, 0f, 99f);
                 tableBuffers[ckey] = cbuf;
                 profile.clusterSize = cl;
 
@@ -522,11 +555,11 @@ namespace RegionsAndSocieties
         }
 
         // Column layout for the table: x positions and widths, index-aligned with the headers. Spaced out with
-        // fuller names, and a "Clusters" column added beside "Min size" (indices: 0 Faction, 1-6 resource
-        // weights, 7 Size, 8 Clusters, 9 Min size, 10 Kin, 11 Reset).
+        // fuller names, and a "Max kin" column (kin-faction cap) beside "Cluster sz" (body size) (indices:
+        // 0 Faction, 1-6 resource weights, 7 Size, 8 Max kin, 9 Cluster size, 10 Kin, 11 Reset).
         private static readonly float[] TblX = { 4f, 160f, 214f, 268f, 322f, 376f, 430f, 486f, 540f, 596f, 652f, 686f };
         private static readonly float[] TblW = { 150f, 50f, 50f, 50f, 50f, 50f, 50f, 50f, 50f, 50f, 30f, 56f };
-        private static readonly string[] TblHead = { "Faction", "Mineral", "Nutrition", "Forage", "Grazing", "Hunting", "Margin", "Size", "Clusters", "Min size", "Kin", "" };
+        private static readonly string[] TblHead = { "Faction", "Mineral", "Nutrition", "Forage", "Grazing", "Hunting", "Margin", "Size", "Max kin", "Cluster sz", "Kin", "" };
 
         /// <summary>Experimental table layout for the advanced faction editor (#47): every faction a row,
         /// every tuning value a column, so a custom setup can be compared across factions at a glance.</summary>
@@ -571,15 +604,12 @@ namespace RegionsAndSocieties
                 NumCell(new Rect(TblX[6], cy, TblW[6], ch), def.defName + ":mrg", ref profile.marginWeight, 0f, 5f);
                 NumCell(new Rect(TblX[7], cy, TblW[7], ch), def.defName + ":shr", ref profile.placementShare, 0f, 300f);
 
-                // Number of clusters (Empire pinned to 1, shown as a static label).
-                if (FactionPlacementSettings.IsEmpire(def))
-                {
-                    var pa = Text.Anchor; Text.Anchor = TextAnchor.MiddleCenter;
-                    GUI.color = new Color(0.6f, 0.6f, 0.6f);
-                    Widgets.Label(new Rect(TblX[8], cy, TblW[8], ch), "1");
-                    GUI.color = Color.white; Text.Anchor = pa;
-                }
-                else
+                bool kinLocked = FactionPlacementSettings.KinLocked(def);   // #63: the Empire
+                bool kinOn = FactionPlacementSettings.EffectiveEnableKin(profile, def);
+
+                // Max kin factions (kin cap; numberOfClusters): editable only when kin is on; greyed and
+                // inert otherwise (the Empire and any kin-off faction, whose scatter comes from cluster size).
+                if (kinOn)
                 {
                     int ncv = FactionPlacementSettings.EffectiveClusterCount(profile, def);
                     string nkey = def.defName + ":nc";
@@ -588,18 +618,35 @@ namespace RegionsAndSocieties
                     tableBuffers[nkey] = nbuf;
                     profile.numberOfClusters = ncv;
                 }
+                else
+                {
+                    tableBuffers.Remove(def.defName + ":nc");
+                    var pa = Text.Anchor; Text.Anchor = TextAnchor.MiddleCenter;
+                    GUI.color = new Color(0.5f, 0.5f, 0.5f);
+                    Widgets.Label(new Rect(TblX[8], cy, TblW[8], ch), "—");
+                    GUI.color = Color.white; Text.Anchor = pa;
+                }
 
+                // Cluster size (body-size cap): applies always, so it is the Empire's scatter knob. 0 = whole.
                 int clv = Placement.ClusteringRules.Snap(profile.clusterSize);
                 string ckey = def.defName + ":cl";
                 if (!tableBuffers.TryGetValue(ckey, out var cbuf)) cbuf = clv.ToString();
-                Widgets.TextFieldNumeric(new Rect(TblX[9], cy, TblW[9], ch), ref clv, ref cbuf, 1f, 99f);
+                Widgets.TextFieldNumeric(new Rect(TblX[9], cy, TblW[9], ch), ref clv, ref cbuf, 0f, 99f);
                 tableBuffers[ckey] = cbuf;
                 profile.clusterSize = clv;
 
-                bool kinOn = FactionPlacementSettings.EffectiveEnableKin(profile, def);
-                bool kb = kinOn;
-                Widgets.Checkbox(TblX[10] + 6f, curY + 3f, ref kinOn, 20f);
-                if (kinOn != kb) profile.enableKinRaw = kinOn ? 1 : 0;
+                // Kin toggle — locked off for the Empire (#63).
+                if (kinLocked)
+                {
+                    bool locked = false;
+                    Widgets.Checkbox(TblX[10] + 6f, curY + 3f, ref locked, 20f, disabled: true);
+                }
+                else
+                {
+                    bool kb = kinOn;
+                    Widgets.Checkbox(TblX[10] + 6f, curY + 3f, ref kinOn, 20f);
+                    if (kinOn != kb) profile.enableKinRaw = kinOn ? 1 : 0;
+                }
 
                 if (Widgets.ButtonText(new Rect(TblX[11], curY + 2f, TblW[11], rowH - 6f), "Reset"))
                 {

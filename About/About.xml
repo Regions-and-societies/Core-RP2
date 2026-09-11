@@ -4,7 +4,7 @@
     <author>Regions and Societies Team</author>
     <packageId>RegionsAndSocieties.CoreRP2</packageId>
     <url>https://github.com/Regions-and-societies/Core-RP2</url>
-    <modVersion>0.4.0</modVersion>
+    <modVersion>0.4.1</modVersion>
     <supportedVersions>
         <li>1.6</li>
     </supportedVersions>
@@ -44,7 +44,7 @@
     </loadAfter>
     <description>
 Discord Community: https://discord.gg/eVBebZ2N9s
-Version: v0.4.0 (Target: RimWorld 1.6)
+Version: v0.4.1 (Target: RimWorld 1.6)
 
 Regions and Societies — Realistic Planets 2 edition
 Official Wiki and Documentation: https://github.com/Regions-and-societies/Core-MMF/wiki
@@ -66,6 +66,14 @@ Features:
 A world generated with the mod installed gets everything, including placement rules. A world already in progress is adopted in Compatibility Mode: provinces are drawn and territory is owned and shown, but placement stays with vanilla or whichever mod owns it. The mode is decided once per save and shown under Strict territorial ownership in the mod settings. Removing the mod from an in-progress save is not supported and will log errors.
 
 Requires: Realistic Planets 2, Harmony
+
+--- Changelog (v0.4.1) - Placement Defaults &amp; Clustering Fix ---
+A bug-fix patch on 0.4.0, focused on how factions cluster and claim territory.
+
+- The shattered Empire now generates as intended: many small clusters of 1-3 regions scattered across the whole planet, as a single highly-fragmented faction, instead of one giant contiguous nation. Its FactionDef is untouched, so mods that build on the Empire are unaffected.
+- Clustering and regional kin are now separate ideas. A faction that does not form kin still scatters into clusters - it just stays one faction. Kin-forming factions (tribes, rough unions, low-tech pirates) are unchanged.
+- Spacer-tech factions default to no regional kin: pod and shuttle mobility means distance does not fracture them into separate polities. They still scatter into clusters, and you can turn kin back on per faction.
+- Placement dialog: the "Number of clusters" control is renamed "Max kin factions" - it caps how many kin factions form, not the number of clusters on the map. "Min cluster size" is renamed "Cluster size" - the largest a single cluster grows, applied whether or not the faction forms kin (0 = one contiguous nation). The Empire's kin toggle is locked off.
 
 --- Changelog (v0.4.0) - Map &amp; Placement ---
 The world map is redrawn to follow the land, and factions settle it with character. A new-game Geographic Placement dialog puts territory shares, clustering and kin in your hands.

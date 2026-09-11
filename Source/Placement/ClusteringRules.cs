@@ -34,6 +34,7 @@ namespace RegionsAndSocieties.Placement
 
         // RimWorld's TechLevel ordinals: Undefined 0, Animal 1, Neolithic 2, Medieval 3, Industrial 4, Spacer 5 ...
         public const int TechIndustrial = 4;
+        public const int TechSpacer = 5;
 
         /// <summary>0 (or any non-positive value) means no cap on body size.</summary>
         public static bool IsUnbounded(int cap) { return cap <= 0; }
