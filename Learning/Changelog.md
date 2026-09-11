@@ -2,6 +2,15 @@
 
 Full version history. The mod page and Workshop description show only the latest release; earlier versions are recorded here. Versions before 0.1.0 shipped under the former identity, **RimSynapse - Regions and Territories**, and are kept below as the predecessor's history.
 
+## v0.4.1 - Placement Defaults & Clustering Fix
+
+A bug-fix patch on 0.4.0, focused on how factions cluster and claim territory.
+
+- **The shattered Empire scatters as one faction (#63).** Worldgen was collapsing any faction that does not form kin into a single giant contiguous blob, so the Empire generated as one huge nation. Clustering (how territory scatters into contiguous bodies) and regional kin (whether those bodies become *separate* factions) are now decoupled: the Empire generates as many small clusters of 1-3 regions spread across the planet, while staying a single highly-fragmented faction. Its kin toggle is locked off, but its cluster size and relative size stay adjustable (set cluster size to 0 for one contiguous nation). The Empire FactionDef is never modified, so mods that build on it are unaffected. The incremental (in-game) placer already behaved this way; worldgen now matches it.
+- **Spacer-tech factions default to no regional kin (#64).** Pod and shuttle mobility means distance does not fracture a high-tech faction into separate polities. Spacer-tech factions default to kin off (they still scatter into clusters), and you can turn kin back on per faction. Sub-industrial pirates, tribes and rough unions keep forming kin as before.
+- **Faction placement defaults documented (#65).** Added a mod-neutral breakdown of the per-faction placement defaults (by faction kind and tech level) in `Design/faction-placement-defaults.md`, including how mod-added factions inherit defaults and how bespoke overrides are filed to the compatibility-patch repos.
+- **Placement dialog labels clarified.** "Number of clusters" is renamed **Max kin factions** - it caps how many kin factions form, not the number of clusters on the map. "Min cluster size" is renamed **Cluster size** - the largest a single contiguous cluster grows, applied whether or not the faction forms kin (0 = one nation). The old "Number of clusters" wording conflated the two and could read as self-contradictory.
+
 ## v0.4.0 - Map & Placement
 
 The world map is redrawn to follow the land, and factions settle it with character. A new-game **Geographic Placement** dialog puts territory shares, clustering and kin in your hands, and every world-shaping knob is now yours to tune.
