@@ -29,6 +29,22 @@ namespace SubFactionRulesTests
             Check("splittable-kind check", SubFactionRules.IsSplittableKind(FactionKind.Pirate) && SubFactionRules.IsSplittableKind(FactionKind.Tribe) && SubFactionRules.IsSplittableKind(FactionKind.RoughUnion));
             Check("Empire and Other are not splittable kinds", !SubFactionRules.IsSplittableKind(FactionKind.Empire) && !SubFactionRules.IsSplittableKind(FactionKind.Other));
 
+            Section("kin default (#63/#64): Empire never, spacer-tech off, fractious low-tech on");
+            // Empire is off at every tech and is LOCKED.
+            Check("Empire off regardless of tech", !SubFactionRules.KinDefault(FactionKind.Empire, spacer, true) && !SubFactionRules.KinDefault(FactionKind.Empire, industrial, true));
+            Check("Empire is kin-locked", SubFactionRules.KinLocked(true) && !SubFactionRules.KinLocked(false));
+            // #64: any spacer-tech faction defaults kin OFF, even a pirate/tribe kind.
+            Check("spacer pirate off (#64)", !SubFactionRules.KinDefault(FactionKind.Pirate, spacer, false));
+            Check("spacer tribe off (#64)", !SubFactionRules.KinDefault(FactionKind.Tribe, spacer, false));
+            Check("ultra-tech pirate off (#64)", !SubFactionRules.KinDefault(FactionKind.Pirate, ultra, false));
+            // Sub-spacer fractious kinds keep kin on by default.
+            Check("industrial (e.g. waster) pirate on", SubFactionRules.KinDefault(FactionKind.Pirate, industrial, false));
+            Check("neolithic tribe on", SubFactionRules.KinDefault(FactionKind.Tribe, neolithic, false));
+            Check("industrial rough union on", SubFactionRules.KinDefault(FactionKind.RoughUnion, industrial, false));
+            // Cohesive kinds are off whatever the tech.
+            Check("industrial civil (Other) off", !SubFactionRules.KinDefault(FactionKind.Other, industrial, false));
+            Check("spacer trader (Other) off", !SubFactionRules.KinDefault(FactionKind.Other, spacer, false));
+
             Section("section count: at most 2-3, never more than bodies");
             Check("2 bodies -> 2 sections", SubFactionRules.SectionCount(2, SubFactionRules.MaxSections) == 2);
             Check("3 bodies -> 3", SubFactionRules.SectionCount(3, SubFactionRules.MaxSections) == 3);

@@ -286,13 +286,27 @@ namespace RegionsAndSocieties.Patches
                 return Placement.SubFactionRules.PlannedKinCount(regions, clusters, minSize);
             }
 
+            // #63: the body-size cap that governs how a faction's territory physically scatters — decoupled
+            // from kin. Kin ON derives the cap from the target kin count (ceil(regions / kinCount)); kin OFF
+            // still scatters, capped at the faction's own cluster size (the same rule the incremental placer
+            // uses), so the Empire and spacer factions break into small clusters instead of one giant blob.
+            // A cohesive faction (unbounded cluster size) resolves to one contiguous body either way.
+            int EffectiveBodyCap(Faction f)
+            {
+                var prof = FactionPlacementSettings.GetProfile(f.def);
+                if (FactionPlacementSettings.EffectiveEnableKin(prof, f.def))
+                {
+                    int regions = factionTargetBases.TryGetValue(f, out var b) ? b : 0;
+                    return Placement.ClusteringRules.BodyCap(regions, KinCountOf(f));
+                }
+                return Placement.ClusteringRules.Snap(prof != null ? prof.clusterSize : 0);
+            }
+
             int ClusterOf(Faction f)
             {
-                int planned = factionTargetBases.TryGetValue(f, out var b) ? b : 0;
-                // Seed by the body-size cap that produces this faction's cluster count — more clusters (smaller
-                // bodies) seed first so a fragmented faction finds isolated ground before the map fills.
-                int cap = Placement.ClusteringRules.BodyCap(planned, KinCountOf(f));
-                return Placement.ClusteringRules.SeedingKey(cap);
+                // Seed by the body-size cap — more clusters (smaller bodies) seed first so a fragmented
+                // faction (now including the kin-off Empire) finds isolated ground before the map fills.
+                return Placement.ClusteringRules.SeedingKey(EffectiveBodyCap(f));
             }
 
             List<Faction> alternatingFactions = new List<Faction>();
@@ -410,11 +424,12 @@ namespace RegionsAndSocieties.Patches
 
                 int baseCount = factionTargetBases.ContainsKey(faction) ? factionTargetBases[faction] : 5;
 
-                // Clustering: the faction physically scatters into ~kinCount contiguous bodies, so the body-
-                // size cap is ceil(regions / kinCount). kinCount combines the two knobs — number of clusters
-                // (equal division) clamped by the minimum cluster size. A candidate that would push a body
-                // over the cap ranks behind every candidate that would not, taken only as a last resort.
-                int clusterCap = Placement.ClusteringRules.BodyCap(baseCount, KinCountOf(faction));
+                // Clustering (#63): the body-size cap the faction's territory scatters under, decoupled from
+                // kin. Kin ON → ceil(regions / kinCount) so it breaks into ~kinCount bodies; kin OFF → the
+                // faction's own cluster size, so the Empire and spacer factions still scatter into small
+                // clusters while staying a single faction. A candidate that would push a body over the cap
+                // ranks behind every candidate that would not, taken only as a last resort.
+                int clusterCap = EffectiveBodyCap(faction);
                 var bodies = new Placement.TerritoryBodies();
                 int overflowPicks = 0;
 

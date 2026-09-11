@@ -92,6 +92,29 @@ namespace RegionsAndSocieties.Placement
             return kind == FactionKind.Pirate || kind == FactionKind.Tribe || kind == FactionKind.RoughUnion;
         }
 
+        /// <summary>
+        /// The default regional-kin setting for a faction (#63/#64). Kin (bodies becoming SEPARATE factions)
+        /// is a different idea from clustering (territory scattering into bodies) — a kin-off faction still
+        /// clusters, it just stays one faction. Defaults:
+        /// <list type="bullet">
+        /// <item>the Empire never forms kin — it is one highly-fragmented polity (and it is <see cref="KinLocked"/>);</item>
+        /// <item>spacer-tech factions default OFF — pod/shuttle mobility means distance does not fracture them
+        /// into separate polities (a player can still opt in); they continue to cluster;</item>
+        /// <item>otherwise the fractious low-tech kinds (pirate / tribe / rough union) form kin by default.</item>
+        /// </list>
+        /// Pure: kind, tech and the Empire flag in, the default out — so the dialog and worldgen agree.
+        /// </summary>
+        public static bool KinDefault(FactionKind kind, int techLevel, bool isEmpire)
+        {
+            if (isEmpire) return false;
+            if (techLevel >= ClusteringRules.TechSpacer) return false;   // #64
+            return IsSplittableKind(kind);
+        }
+
+        /// <summary>Whether regional kin is LOCKED off (never player-overridable): the Empire, a single
+        /// highly-fragmented polity that many mods base off, must never split into kin factions (#63).</summary>
+        public static bool KinLocked(bool isEmpire) => isEmpire;
+
         /// <summary>A faction splits when it is a fractious kind, has a finite cluster cap, and its
         /// settlements form two or more separate bodies.</summary>
         public static bool ShouldSplit(FactionKind kind, int clusterCap, int bodyCount)
