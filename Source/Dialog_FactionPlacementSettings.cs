@@ -390,7 +390,7 @@ namespace RegionsAndSocieties
                     kinLocked
                         ? $"The Empire never forms kin — it stays one faction, but scatters into small clusters (cluster size {Placement.ClusteringRules.Label(profile.clusterSize)}, set in Advanced)."
                         : actuallySplits
-                            ? $"Kin on: this faction's ~{est} regions split into {kinCount} kin factions (up to {clustersCfg} clusters — set in Advanced)."
+                            ? $"Kin on: this faction's ~{est} regions split into {kinCount} kin factions (up to {clustersCfg} max — set in Advanced)."
                             : kinOn
                                 ? $"Kin is on, but this faction resolves to a single cluster (≈{est} regions), so it stays ONE faction. Give it more land or raise its cluster count (Advanced)."
                                 : "Kin is off — this faction stays whole (it may still scatter into clusters).");
@@ -506,19 +506,21 @@ namespace RegionsAndSocieties
                     if (kinOn != kinBefore) profile.enableKinRaw = kinOn ? 1 : 0;
                     TooltipHandler.TipRegion(kinRect,
                         "When on, this faction's territory is divided into geographically separate kin factions (loosely-related, not merged). " +
-                        "How many is capped by the number of clusters below. Default on for scattered low-tech factions (pirates, tribes, rough unions), off for the Empire and spacer-tech factions.");
+                        "How many is capped by 'Max kin factions' below. Default on for scattered low-tech factions (pirates, tribes, rough unions), off for the Empire and spacer-tech factions.");
                 }
 
-                // Row B left — Number of clusters (max kin cap). Only meaningful when kin is ON; greyed and
-                // inert otherwise (the Empire, and any faction with kin off), which is where the scatter is
-                // set by cluster size instead.
+                // Row B left — Max kin factions (the kin cap; field is numberOfClusters). Only meaningful
+                // when kin is ON; greyed and inert otherwise (the Empire, and any faction with kin off),
+                // which is where the scatter is set by cluster size instead. NOTE: this caps KIN FACTIONS,
+                // not the physical clusters on the map (those are ~regions/clusterSize) — the old "Number of
+                // clusters" label conflated the two and misled players (0.4.1 rename).
                 Rect clustersLabelRect = new Rect(leftX, rowBy, halfW - 62f, 24f);
                 bool zeroClusters = kinOn && FactionPlacementSettings.EffectiveClusterCount(profile, def) == 0;
                 GUI.color = !kinOn ? new Color(0.6f, 0.6f, 0.6f) : (zeroClusters ? new Color(1f, 0.7f, 0.3f) : Color.white);
-                Widgets.Label(clustersLabelRect, "Number of clusters:");
+                Widgets.Label(clustersLabelRect, "Max kin factions:");
                 GUI.color = Color.white;
                 TooltipHandler.TipRegion(clustersLabelRect,
-                    "The maximum number of kin factions this faction's clusters are grouped into — only applies when 'Split into regional kin' is on. 0 = no cap (one kin per cluster-size worth of regions). Defaults: pirates 5, tribes 3, rough unions 2.");
+                    "The most kin factions this faction splits into — only applies when 'Split into regional kin' is on. This does NOT set the number of clusters on the map (that comes from the cluster size); it just caps how many separate factions those clusters are grouped into. 0 = no cap. Defaults: pirates 5, tribes 3, rough unions 2.");
                 if (kinOn)
                 {
                     int nc = FactionPlacementSettings.EffectiveClusterCount(profile, def);
@@ -553,11 +555,11 @@ namespace RegionsAndSocieties
         }
 
         // Column layout for the table: x positions and widths, index-aligned with the headers. Spaced out with
-        // fuller names, and a "Clusters" column (kin cap) beside "Cluster sz" (body size) (indices: 0 Faction,
-        // 1-6 resource weights, 7 Size, 8 Clusters, 9 Cluster size, 10 Kin, 11 Reset).
+        // fuller names, and a "Max kin" column (kin-faction cap) beside "Cluster sz" (body size) (indices:
+        // 0 Faction, 1-6 resource weights, 7 Size, 8 Max kin, 9 Cluster size, 10 Kin, 11 Reset).
         private static readonly float[] TblX = { 4f, 160f, 214f, 268f, 322f, 376f, 430f, 486f, 540f, 596f, 652f, 686f };
         private static readonly float[] TblW = { 150f, 50f, 50f, 50f, 50f, 50f, 50f, 50f, 50f, 50f, 30f, 56f };
-        private static readonly string[] TblHead = { "Faction", "Mineral", "Nutrition", "Forage", "Grazing", "Hunting", "Margin", "Size", "Clusters", "Cluster sz", "Kin", "" };
+        private static readonly string[] TblHead = { "Faction", "Mineral", "Nutrition", "Forage", "Grazing", "Hunting", "Margin", "Size", "Max kin", "Cluster sz", "Kin", "" };
 
         /// <summary>Experimental table layout for the advanced faction editor (#47): every faction a row,
         /// every tuning value a column, so a custom setup can be compared across factions at a glance.</summary>
@@ -605,8 +607,8 @@ namespace RegionsAndSocieties
                 bool kinLocked = FactionPlacementSettings.KinLocked(def);   // #63: the Empire
                 bool kinOn = FactionPlacementSettings.EffectiveEnableKin(profile, def);
 
-                // Number of clusters (kin cap): editable only when kin is on; greyed and inert otherwise
-                // (the Empire and any kin-off faction, whose scatter comes from cluster size instead).
+                // Max kin factions (kin cap; numberOfClusters): editable only when kin is on; greyed and
+                // inert otherwise (the Empire and any kin-off faction, whose scatter comes from cluster size).
                 if (kinOn)
                 {
                     int ncv = FactionPlacementSettings.EffectiveClusterCount(profile, def);

@@ -16,7 +16,7 @@ Source of truth: `FactionPlacementSettings.GetDefaultProfile`, `ClusteringRules`
 |---|---|---|
 | **Clustering** | `clusterSize` | The largest a single contiguous cluster (body) grows. The faction's territory scatters into bodies of at most this many regions. **Applies always**, whether or not the faction forms kin. `0` = one contiguous nation (no scatter). |
 | **Kin** | `enableKin` | Whether those bodies become **separate factions** (loosely-related "North / South" kin). A kin-off faction still clusters — it just stays one faction. |
-| **Number of clusters** | `numberOfClusters` | The **maximum number of kin factions** the bodies are grouped into. Only meaningful when kin is on. `0` = no cap. |
+| **Max kin factions** | `numberOfClusters` | The **maximum number of kin factions** the bodies are grouped into. Only meaningful when kin is on. `0` = no cap. **Note:** this does *not* count the physical clusters on the map (those are ~`regions / clusterSize`) — the field is named `numberOfClusters` in code/saves but was mislabelled "Number of clusters" in the UI through 0.4.0, which conflated the two; renamed "Max kin factions" in 0.4.1. |
 
 Before 0.4.1 the worldgen body-size cap was derived from the kin count, so **kin-off ⇒ one
 giant blob**. That collapsed the shattered Empire into a single nation (#63). Now the body cap
@@ -39,7 +39,7 @@ A modded faction is classified by the same rules, so it inherits sensible defaul
 
 ## Defaults by kind
 
-| Kind | Cluster size (`clusterSize`) | Number of clusters (`numberOfClusters`) | Kin default (`KinDefault`) |
+| Kind | Cluster size (`clusterSize`) | Max kin factions (`numberOfClusters`) | Kin default (`KinDefault`) |
 |---|---|---|---|
 | **Pirate** | 3 | 5 | **on** (unless spacer-tech — see below) |
 | **Empire** | 3 | n/a — kin locked, so this knob never applies | **off, LOCKED** |
