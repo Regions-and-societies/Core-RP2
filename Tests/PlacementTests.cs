@@ -334,6 +334,19 @@ namespace PlacementTests
                 Check("registration stamps the defName it was registered under", got.factionDefName == "VFE_Mechanoids");
                 Check("holding range carried", got.baseCountRange.min == 2 && got.baseCountRange.max == 6);
 
+                // #46/#47/#63 fields ride along with a registration, unset markers included, so the settings
+                // store can tell "the patch chose this" from "fill in the kind default".
+                Check("fallback leaves kin/cluster/share unset", ind.clusterSize == -1 && ind.numberOfClusters == -1 && ind.enableKinRaw == -1 && ind.placementShare == 0f);
+                Check("registration preserves the unset markers", got.clusterSize == -1 && got.numberOfClusters == -1 && got.enableKinRaw == -1 && got.placementShare == 0f);
+                var tuned = new FactionPlacementProfile(null, 1f, 1f, 1f, 1f, 1f, 0f, 3, 9, 2);
+                tuned.clusterSize = 4; tuned.numberOfClusters = 2; tuned.enableKinRaw = 1; tuned.placementShare = 12.5f;
+                FactionPlacementDefaults.Register("VFE_Tuned", tuned);
+                FactionPlacementDefaults.TryGet("VFE_Tuned", out var tunedGot);
+                Check("registration carries kin/cluster/share choices", tunedGot.clusterSize == 4 && tunedGot.numberOfClusters == 2 && tunedGot.enableKinRaw == 1 && tunedGot.placementShare == 12.5f);
+                var cloned = tunedGot.Clone();
+                cloned.clusterSize = 0; cloned.placementShare = 1f;
+                Check("Clone copies every field and is independent", tunedGot.clusterSize == 4 && tunedGot.placementShare == 12.5f && cloned.numberOfClusters == 2 && cloned.enableKinRaw == 1);
+
                 // Copies both ways: neither the caller's instance nor a handed-out profile can mutate the template.
                 vfe.mineralWeight = 9f;
                 got.placementOrder = 1;
