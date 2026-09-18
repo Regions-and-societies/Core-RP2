@@ -59,15 +59,19 @@ namespace RegionsAndSocieties.Sizing
             return g;
         }
 
-        /// <summary>The starting modeled population for a settlement with no stored value yet: a third of
-        /// its ⅔-max target (the growth capacity), floored so growth can begin, so a fresh settlement
-        /// starts small and visibly climbs toward its target. Zero for an untiered holding.</summary>
+        /// <summary>The starting modeled population for a settlement with no stored value yet: its
+        /// ⅔-max target (the growth capacity), floored so growth can begin.
+        ///
+        /// <para>#71: an <b>untiered</b> settlement has no tier cap rather than no inhabitants, and
+        /// settlement tiers are off by default — so it seeds from the static tech-level estimate instead
+        /// of zero. Returning zero here emptied the demographic pressure field of every NPC settlement
+        /// on the planet. <see cref="BirthrateRules.GrowStep"/> already holds an uncapped population
+        /// steady rather than shrinking it, so a seeded untiered settlement stays put.</para></summary>
         public static float SeedPopulation(WorldObject settlement)
         {
             int capacity = SettlementSizeUtility.TargetPopulationOf(settlement);
-            if (capacity <= 0) return 0f;
-            float seed = capacity * SeedFractionOfCapacity;
-            return seed < BirthrateRules.SeedFloor ? BirthrateRules.SeedFloor : seed;
+            int fallback = PopulationDensityUtility.StaticNpcPopulationEstimate(settlement as Settlement);
+            return PopulationCapRules.SeedPopulation(capacity, fallback, SeedFractionOfCapacity, BirthrateRules.SeedFloor);
         }
     }
 }

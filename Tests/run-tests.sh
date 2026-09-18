@@ -119,6 +119,11 @@ run_suite worldscale Exe \
 run_suite district Exe \
     Tests/DistrictRulesTests.cs \
     $SRC/Sizing/WorldScaleRules.cs $SRC/Sizing/DistrictRules.cs
+# Population caps and the seeding contract (#71): a non-positive capacity means "no tier cap", never
+# "no inhabitants" - the misreading that emptied every NPC settlement. Pure, no game.
+run_suite populationcap Exe \
+    Tests/PopulationCapRulesTests.cs \
+    $SRC/Sizing/PopulationCapRules.cs $SRC/Sizing/TierPyramidRules.cs $SRC/Sizing/SettlementTier.cs
 
 # 0.3.0 settlement birthrate-growth core (#6): tech-informed rate + logistic step toward the target.
 # Pure, no game — needs only the standalone BirthrateRules.

@@ -25,6 +25,29 @@ namespace RegionsAndSocieties.Sizing
         /// </summary>
         public const float DefaultMultiplier = 30f;
 
+        /// <summary>
+        /// The population a settlement starts modelling from.
+        ///
+        /// <para><b>A non-positive <paramref name="targetCapacity"/> means "no tier-imposed cap", not
+        /// "room for nobody"</b> — the contract <see cref="MaxPopulation"/> documents and every other
+        /// caller honours. An untiered settlement (which is every settlement when the settlement-tier
+        /// feature is off, its default) therefore seeds from <paramref name="fallbackEstimate"/>. Reading
+        /// that zero as an empty settlement is what left every NPC settlement with no population at all,
+        /// and with it no demographics anywhere on the planet (#71).</para>
+        /// </summary>
+        public static float SeedPopulation(int targetCapacity, int fallbackEstimate, float seedFraction, float seedFloor)
+        {
+            float floor = seedFloor < 0f ? 0f : seedFloor;
+            if (targetCapacity <= 0)
+            {
+                float f = fallbackEstimate > 0 ? fallbackEstimate : floor;
+                return f < floor ? floor : f;
+            }
+            float fraction = seedFraction > 0f ? seedFraction : TargetFraction;
+            float seed = targetCapacity * fraction;
+            return seed < floor ? floor : seed;
+        }
+
         /// <summary>The desired size is this fraction of the cap; the population drifts toward it.</summary>
         public const float TargetFraction = 2f / 3f;
 
