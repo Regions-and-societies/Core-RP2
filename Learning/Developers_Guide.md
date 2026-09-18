@@ -14,6 +14,7 @@ Contents:
 - [Region partition algorithms](#region-partition-algorithms-040) — plug in your own way of cutting the globe into provinces
 - [Region-count estimates](#region-count-estimates-040) — the shared "≈ N regions" maths
 - [World scale](#world-scale-050) — how much ground one world tile is, in the player's own maps
+- [District model](#district-model-050) — how a settlement occupies its tile, and the player-tile rule
 - [Demographic providers](#demographic-providers) — contribute a demographics component to ownership
 - [Territory-claim hook](#territory-claim-hook) — consume the contested-settlement event
 - [Ownership vocabulary](#ownership-vocabulary) — tiers, thresholds and placement rules
@@ -532,6 +533,77 @@ Log.Message(WorldScaleRules.RatioLabel(mapEdge));           // the sentence play
 
 Read the map size from `WorldInfo.initialMapSize` rather than assuming 250 — it is saved on the world, so it
 is readable on the world map before settling, and it already reflects whatever a larger-map mod set.
+
+## District model (0.5.0)
+
+New in 0.5.0 (#69). A tile is ~374 local maps of ground, but people do not spread evenly over 23 km²:
+they cluster, with farmland around them. The settled part of a tile is therefore a **hex cluster of
+districts**, one district being exactly one local map, growing outward in rings — the arrangement
+RimWorld's hex tiles already imply. Namespace `RegionsAndSocieties.Sizing`, class `DistrictRules`.
+
+```
+        [NW] [NE]
+      [W]  [X]  [E]
+        [SW] [SE]
+```
+
+`X` is the rendered map; ring 1 adds the six neighbours. District counts are the centered hexagonal
+numbers, and a district holds **100 people** at the measured build density on a default map (400 on a
+500x500 one, because a district is one local map and rescales with it).
+
+| Tier | Districts | Settled population | Share of tile |
+|---|---|---|---|
+| `Homestead` | 1 | 100 | 0.3% |
+| `Village` | 7 | 700 | 1.9% |
+| `Town` | 19 | 1,900 | 5.1% |
+| `City` | 37 | 3,700 | 9.9% |
+| `Metropolis` | 61 | 6,100 | 16.3% |
+
+Every tier leaves most of the tile as hinterland, which is what makes suburbs and farmland real rather
+than a fudge. Hinterland holds a further quarter of the settled population (`HinterlandShare`), which
+works out at about 1 person/km² around a homestead and 78/km² around a metropolis.
+
+| Member | Signature | Notes |
+|---|---|---|
+| `DistrictsInRings` / `RingsForDistricts` | `int (int)` | The ring geometry, 1 + 3k(k+1). Saturates rather than overflowing. |
+| `DistrictsForTier` / `RingsForTier` | `int (DistrictTier)` | 1, 7, 19, 37, 61. |
+| `PeoplePerDistrict` | `float (int mapEdgeCells)` | Build density × district area. |
+| `PopulationForTier` / `TierForPopulation` | | Tier and population, each from the other. |
+| `DistrictsForPopulation` | `int (int population, int mapEdgeCells[, int ringCap])` | Capped at the ring cap so tile totals stay explainable. |
+| `DistrictsForPopulationUncapped` | `int (int, int)` | The true built extent, which the radius maths needs. |
+| `SettledShareOfTile` | `float (int districts, int mapEdgeCells)` | Fraction of the tile built on. |
+| `HinterlandPopulation` / `TilePopulation` | `int (int settledPopulation)` | Outlying farms, and the tile total. |
+| `TierFromDevelopment` | `DistrictTier (float developedFraction, float wealthMultiplier)` | **Tier from built area and wealth, never from head count.** |
+| `PlayerTilePopulation` | `int (int colonistCount, DistrictTier, int mapEdgeCells)` | The player-tile rule, below. |
+| `RenderedShare` | `float (int, DistrictTier, int)` | How much of the tile is actually on screen. |
+| `BuiltRadiusDistricts` / `BuiltRadiusTiles` | | Radius of the built cluster; grows as the **square root** of population. |
+
+### The player-tile rule
+
+Taken literally, a tile of 374 maps says a late-game colony of 30-40 pawns sits on ground holding tens of
+thousands, so the world map calls the player a rounding error. Three rules prevent that, and any consumer
+reading these endpoints should honour them:
+
+1. The rendered map is district `X`, and **its population is exactly the pawn count**. The model never
+   overrides or penalises a live colonist count.
+2. The tier comes from **developed area and wealth** (`TierFromDevelopment`), not head count — RimWorld
+   caps playable colonies far below a real city, so head count cannot classify a player's settlement.
+3. Promotion adds **surrounding** districts, so building a city grows the tile by acquiring suburbs
+   rather than by declaring the player short of people.
+
+```csharp
+int mapEdge = Find.World?.info?.initialMapSize.x ?? WorldScaleRules.DefaultMapEdgeCells;
+
+// A developed, wealthy quarter-map colony reads as a Town...
+DistrictTier tier = DistrictRules.TierFromDevelopment(developedFraction: 0.25f, wealthMultiplier: 1.5f);
+
+// ...so 40 colonists on screen sit at the centre of a tile of ~2,300 people:
+int tileTotal = DistrictRules.PlayerTilePopulation(40, tier, mapEdge);
+float onScreen = DistrictRules.RenderedShare(40, tier, mapEdge);
+```
+
+**Districts are a unit of measure, never objects.** 374 districts × 119,904 tiles is ~45 million; nothing
+here instantiates one, and every answer is closed-form from population. Do not build a district list.
 
 ## Demographic providers
 

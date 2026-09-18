@@ -27,7 +27,7 @@ namespace RegionsAndSocieties.UI
         /// scrolling host can size its view. <paramref name="cacheKeyBase"/> (e.g. the province id) keys
         /// the pie textures; include a mix signature so a changed make-up rebuilds them.
         /// </summary>
-        public static float Draw(Rect rect, RegionDemographics demo, int population, string cacheKeyBase)
+        public static float Draw(Rect rect, RegionDemographics demo, int population, string cacheKeyBase, int colonistCount = -1)
         {
             float y = rect.y;
             if (demo == null || demo.settledTiles <= 0)
@@ -55,6 +55,30 @@ namespace RegionsAndSocieties.UI
                 y = NoteSection(rect, y, "World scale",
                     WorldScaleRules.RatioLabel(mapEdge));
                 y += SectionGap;
+
+                // #69: the settled cluster this population implies, and — on the player's own tile —
+                // the reconciliation between the colonists on screen and the people modelled around
+                // them. The colonist count is authoritative and is never overridden here.
+                if (population > 0)
+                {
+                    DistrictTier tier = DistrictRules.TierForPopulation(population, mapEdge);
+                    int districts = DistrictRules.DistrictsForPopulation(population, mapEdge);
+                    float share = DistrictRules.SettledShareOfTile(districts, mapEdge);
+                    int tileTotal = DistrictRules.TilePopulation(population);
+
+                    string note = $"{districts} settled district{(districts == 1 ? "" : "s")} of "
+                        + $"{Mathf.RoundToInt(WorldScaleRules.MapsPerTile(mapEdge))} ({share:P0} of the tile)"
+                        + $"\n{population} in the settled area · {tileTotal - population} in the surrounding country"
+                        + $" · {tileTotal} on the tile";
+
+                    if (colonistCount >= 0)
+                    {
+                        note += $"\nof which {colonistCount} are your colonists, on this map";
+                    }
+
+                    y = NoteSection(rect, y, $"Districts  —  {tier}", note);
+                    y += SectionGap;
+                }
             }
 
             y = BarSection(rect, y, $"Age  —  median {demo.medianAge}", new List<BarSegment>

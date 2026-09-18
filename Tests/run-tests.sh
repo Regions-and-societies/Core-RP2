@@ -114,6 +114,12 @@ run_suite worldscale Exe \
     Tests/WorldScaleRulesTests.cs \
     $SRC/Sizing/WorldScaleRules.cs
 
+# 0.5.0 district model (#69): hex rings of local maps, tier <-> population, the tile's hinterland,
+# and the player-tile rule that never overrides a live colonist count. Needs the world scale it sits on.
+run_suite district Exe \
+    Tests/DistrictRulesTests.cs \
+    $SRC/Sizing/WorldScaleRules.cs $SRC/Sizing/DistrictRules.cs
+
 # 0.3.0 settlement birthrate-growth core (#6): tech-informed rate + logistic step toward the target.
 # Pure, no game — needs only the standalone BirthrateRules.
 run_suite birthrate Exe \

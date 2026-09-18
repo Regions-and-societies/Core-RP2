@@ -187,7 +187,22 @@ namespace RegionsAndSocieties.UI
             Widgets.BeginScrollView(content, ref scrolls[idx], view);
 
             RegionDemographics demo = RegionDemographicsUtility.ForRegion(province);
-            float y = DemographicsPanel.Draw(new Rect(0f, 0f, viewW, 0f), demo, province.currentPopulation, $"RegionInfo_{province.id}");
+            // #69: if the player's own colony sits in this region, hand the panel its live colonist
+            // count so the reconciliation line can state it. -1 means "not the player's tile".
+            int colonists = -1;
+            if (Find.Maps != null && province?.tiles != null)
+            {
+                for (int i = 0; i < Find.Maps.Count; i++)
+                {
+                    Map m = Find.Maps[i];
+                    if (m == null || !m.IsPlayerHome) continue;
+                    if (!province.tiles.Contains(m.Tile.tileId)) continue;
+                    colonists = m.mapPawns?.FreeColonistsCount ?? 0;
+                    break;
+                }
+            }
+
+            float y = DemographicsPanel.Draw(new Rect(0f, 0f, viewW, 0f), demo, province.currentPopulation, $"RegionInfo_{province.id}", colonists);
 
             Widgets.EndScrollView();
             contentHeights[idx] = y;
