@@ -431,11 +431,11 @@ namespace RegionsAndSocieties.UI
 
         // Live demographic-falloff tuning: nudge a knob, recompute, and reprint the selected region's
         // shares — no reload. Select a border province, then step reach/falloff until "own" reads ~50-60%.
-        [DebugAction("Regions and Societies", "R&S: demo reach +0.1", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
-        private static void DemoReachUp() { NudgeDemographics(0.1f, 0f); }
+        [DebugAction("Regions and Societies", "R&S: demo influence +2", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void DemoReachUp() { NudgeDemographics(2f, 0f); }
 
-        [DebugAction("Regions and Societies", "R&S: demo reach -0.1", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
-        private static void DemoReachDown() { NudgeDemographics(-0.1f, 0f); }
+        [DebugAction("Regions and Societies", "R&S: demo influence -2", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
+        private static void DemoReachDown() { NudgeDemographics(-2f, 0f); }
 
         [DebugAction("Regions and Societies", "R&S: demo falloff +0.25", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap | AllowedGameStates.PlayingOnWorld)]
         private static void DemoFalloffUp() { NudgeDemographics(0f, 0.25f); }
@@ -481,8 +481,10 @@ namespace RegionsAndSocieties.UI
 
         private static void NudgeDemographics(float reachDelta, float falloffDelta)
         {
-            var s = Integration.WorldObjectIntegrationSettings.demographicReach + reachDelta;
-            Integration.WorldObjectIntegrationSettings.demographicReach = Mathf.Clamp((float)System.Math.Round(s, 2), 0.2f, 3f);
+            var s = Integration.WorldObjectIntegrationSettings.demographicInfluence + reachDelta;
+            Integration.WorldObjectIntegrationSettings.demographicInfluence = Mathf.Clamp((float)System.Math.Round(s, 1),
+                Integration.WorldObjectIntegrationSettings.DemographicInfluenceMin,
+                Integration.WorldObjectIntegrationSettings.DemographicInfluenceMax);
             var f = Integration.WorldObjectIntegrationSettings.demographicFalloff + falloffDelta;
             Integration.WorldObjectIntegrationSettings.demographicFalloff = Mathf.Clamp((float)System.Math.Round(f, 2), 0.25f, 4f);
 

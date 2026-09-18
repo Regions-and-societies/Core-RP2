@@ -76,9 +76,15 @@ namespace RegionsAndSocieties.Integration
         public const float GrowthRateMultiplierMin = 0.5f;
         public const float GrowthRateMultiplierMax = 20f;
 
-        /// <summary>Demographic pressure reach multiplier: a settlement's radius is its population × this.
-        /// Higher = beliefs carry further; lower = borders contest sooner. Live-tunable.</summary>
-        public static float demographicReach = 1.0f;
+        /// <summary>#70: how far a settlement's demographic pull reaches beyond its own built edge, as
+        /// a multiple of that edge. Dimensionless. Replaces the old reach multiplier, which multiplied
+        /// raw population and so gave a 150-person settlement a 150-tile radius; the radius now grows as
+        /// the square root of population. Higher = beliefs carry further; lower = borders contest sooner.
+        /// Live-tunable. Scribed under a new key so an old value cannot carry its old meaning across.</summary>
+        public static float demographicInfluence = Sizing.DistrictRules.DefaultInfluenceMultiplier;
+
+        public const float DemographicInfluenceMin = 4f;
+        public const float DemographicInfluenceMax = 80f;
 
         /// <summary>Demographic pressure falloff shape parameter (steepness of the chosen model). Live-tunable.</summary>
         public static float demographicFalloff = 1.0f;
@@ -122,7 +128,7 @@ namespace RegionsAndSocieties.Integration
                 capMultiplierRescaled030 = true;
             }
             Scribe_Values.Look(ref growthRateMultiplier, "integration_growthRateMultiplier", 10f);
-            Scribe_Values.Look(ref demographicReach, "integration_demographicReach", 1.0f);
+            Scribe_Values.Look(ref demographicInfluence, "integration_demographicInfluence", Sizing.DistrictRules.DefaultInfluenceMultiplier);
             Scribe_Values.Look(ref demographicFalloff, "integration_demographicFalloff", 1.0f);
             Scribe_Values.Look(ref demographicFalloffModel, "integration_demographicFalloffModel", 0);
             Scribe_Values.Look(ref demographicGenerationYears, "integration_demographicGenerationYears", 15f);

@@ -124,7 +124,7 @@ namespace RegionsAndSocieties.Demographics
             public int tile;
             public Faction faction;
             public int population;
-            public float reach;   // population * demographicReach; Pressure() is exactly 0 beyond this distance
+            public float reach;   // #70: sqrt-of-population influence radius in tiles; Pressure() is 0 beyond it
         }
 
         /// <summary>
@@ -917,7 +917,7 @@ namespace RegionsAndSocieties.Demographics
                     int pop = DemographicPopulation(o);
                     if (pop > 0)
                     {
-                        float reach = pop * Mathf.Max(0.01f, WorldObjectIntegrationSettings.demographicReach);
+                        float reach = InfluenceReach(pop);
                         sources.Add(new PressureSource { tile = pt.tileId, faction = o.Faction, population = pop, reach = reach });
                     }
                 }
@@ -1042,15 +1042,35 @@ namespace RegionsAndSocieties.Demographics
         }
 
         /// <summary>
-        /// A settlement's demographic pressure at a given crow-flies distance. Reach = population ×
-        /// <see cref="WorldObjectIntegrationSettings.demographicReach"/>; pressure falls from the full
-        /// population at the centre to 0 at the reach, shaped by
-        /// <see cref="WorldObjectIntegrationSettings.demographicFalloff"/> (1 = linear). Tuning these two
-        /// is how border regions are dialled to ~50–60% their own make-up.
+        /// The map edge the player is actually playing at, in cells (#67). Falls back to RimWorld's
+        /// default before a world exists.
+        /// </summary>
+        private static int MapEdgeCells()
+        {
+            int edge = Find.World?.info != null ? Find.World.info.initialMapSize.x : 0;
+            return edge > 0 ? edge : Sizing.WorldScaleRules.DefaultMapEdgeCells;
+        }
+
+        /// <summary>
+        /// #70: a settlement's influence radius in tiles, growing as the SQUARE ROOT of its population.
+        /// The old formula multiplied raw population, so a 150-person settlement reached 150 tiles and
+        /// the reach-based culling could never actually cull.
+        /// </summary>
+        private static float InfluenceReach(int population)
+        {
+            return Sizing.DistrictRules.InfluenceRadiusTiles(population, MapEdgeCells(),
+                WorldObjectIntegrationSettings.demographicInfluence);
+        }
+
+        /// <summary>
+        /// A settlement's demographic pressure at a given crow-flies distance. Reach comes from
+        /// <see cref="InfluenceReach"/>; pressure falls from the full population at the centre to 0 at
+        /// the reach, shaped by <see cref="WorldObjectIntegrationSettings.demographicFalloff"/>
+        /// (1 = linear). Tuning these is how border regions are dialled to ~50-60% their own make-up.
         /// </summary>
         private static float Pressure(int population, float distanceTiles)
         {
-            float reach = population * Mathf.Max(0.01f, WorldObjectIntegrationSettings.demographicReach);
+            float reach = InfluenceReach(population);
             var model = (DemographicsRules.FalloffModel)WorldObjectIntegrationSettings.demographicFalloffModel;
             return DemographicsRules.Pressure(model, population, distanceTiles, reach, WorldObjectIntegrationSettings.demographicFalloff);
         }

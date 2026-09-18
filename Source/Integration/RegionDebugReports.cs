@@ -1392,7 +1392,7 @@ namespace RegionsAndSocieties.Integration
                 + $"  military {demo.occupationShares[(int)OccupationSector.Military]:P0}"
                 + $"  trade {demo.occupationShares[(int)OccupationSector.Trade]:P0}");
             sb.AppendLine($"tuning: model {(Demographics.DemographicsRules.FalloffModel)WorldObjectIntegrationSettings.demographicFalloffModel}"
-                + $"  reach ×{WorldObjectIntegrationSettings.demographicReach:0.00}  shape {WorldObjectIntegrationSettings.demographicFalloff:0.00}");
+                + $"  influence ×{WorldObjectIntegrationSettings.demographicInfluence:0.#}  shape {WorldObjectIntegrationSettings.demographicFalloff:0.00}");
 
             sb.AppendLine("faction pressure share (the border-flip metric — aim ~50-60% own on frontiers):");
             if (demo.factionShares.Count == 0) sb.AppendLine("  (no pressure — wilderness)");

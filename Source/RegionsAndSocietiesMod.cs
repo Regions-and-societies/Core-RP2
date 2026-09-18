@@ -146,9 +146,11 @@ namespace RegionsAndSocieties
             l.CheckboxLabeled("Demographic pressure tuning", ref demographicTuningExpanded, "Show the reach/falloff sliders that shape how far a settlement's make-up carries and how contested its borders are.");
             if (demographicTuningExpanded)
             {
-                float reach = Integration.WorldObjectIntegrationSettings.demographicReach;
-                reach = l.SliderLabeled($"   Demographic reach ×{reach:0.00}  (a city's radius = population × this)", reach, 0.2f, 3f);
-                Integration.WorldObjectIntegrationSettings.demographicReach = (float)System.Math.Round(reach, 2);
+                float reach = Integration.WorldObjectIntegrationSettings.demographicInfluence;
+                reach = l.SliderLabeled($"   Demographic influence ×{reach:0.#}  (how far past its own edge a settlement carries)", reach,
+                    Integration.WorldObjectIntegrationSettings.DemographicInfluenceMin,
+                    Integration.WorldObjectIntegrationSettings.DemographicInfluenceMax);
+                Integration.WorldObjectIntegrationSettings.demographicInfluence = (float)System.Math.Round(reach, 1);
 
                 float fall = Integration.WorldObjectIntegrationSettings.demographicFalloff;
                 fall = l.SliderLabeled($"   Demographic falloff ^{fall:0.00}  (higher = borders flip more easily)", fall, 0.25f, 4f);

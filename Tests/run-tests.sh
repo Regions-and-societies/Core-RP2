@@ -90,11 +90,11 @@ SIZING_PURE=$(ls $SRC/Sizing/*.cs | grep -v -e SettlementGrowthUtility -e Settle
 
 run_suite integration Exe \
     Tests/RimWorldStubs.cs Tests/IntegrationTests.cs \
-    $INTEGRATION_PURE
+    $INTEGRATION_PURE $SRC/Sizing/WorldScaleRules.cs $SRC/Sizing/DistrictRules.cs
 
 run_suite placement Exe \
     Tests/RimWorldStubs.cs Tests/PlacementTests.cs \
-    $INTEGRATION_PURE $SRC/Placement/*.cs
+    $INTEGRATION_PURE $SRC/Placement/*.cs $SRC/Sizing/WorldScaleRules.cs $SRC/Sizing/DistrictRules.cs
 
 # 0.8 outpost-seeding rules: tier -> allowance and terrain -> archetype. Both pure, so this needs
 # only the Sizing tables and the WorldObjectKind enum they read.
@@ -241,7 +241,7 @@ run_suite traderoute Exe \
 
 run_suite resource Exe \
     Tests/RimWorldStubs.cs Tests/ResourceTests.cs \
-    $INTEGRATION_PURE $SRC/Economy/*.cs
+    $INTEGRATION_PURE $SRC/Economy/*.cs $SRC/Sizing/WorldScaleRules.cs $SRC/Sizing/DistrictRules.cs
 
 # The residency suite moved to the Living World companion mod (0.8) along with the residency code it
 # exercises — see LivingWorld/Tests/run-tests.sh.

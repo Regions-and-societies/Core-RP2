@@ -124,6 +124,46 @@ namespace DistrictRulesTests
             Check("uncapped districts exceed the display cap for a huge population",
                 DistrictRules.DistrictsForPopulationUncapped(999999, Default) > DistrictRules.DistrictsForPopulation(999999, Default));
 
+            Section("demographic influence radius (#70) — the fix the old formula needed");
+            // The old rule was reach = population x knob, in TILES: a 150-person settlement projected
+            // pressure 150 tiles, so the reach-based culling could never fire. Reach must go as sqrt(P).
+            float infl = DistrictRules.DefaultInfluenceMultiplier;
+            float rVillage = DistrictRules.InfluenceRadiusTiles(700, Default, infl);
+            float rTown = DistrictRules.InfluenceRadiusTiles(1900, Default, infl);
+            float rCity = DistrictRules.InfluenceRadiusTiles(3700, Default, infl);
+            float rMetro = DistrictRules.InfluenceRadiusTiles(6100, Default, infl);
+            Check("a village reaches ~2 tiles", Near(rVillage, 2.0f, 0.3f));
+            Check("a town reaches ~3.3 tiles", Near(rTown, 3.3f, 0.4f));
+            Check("a metropolis reaches ~5.9 tiles", Near(rMetro, 5.9f, 0.6f));
+            Check("reach is monotonic in population", rVillage < rTown && rTown < rCity && rCity < rMetro);
+            // The property that matters: quadrupling population doubles the radius, it does not quadruple it.
+            Check("quadrupling population doubles the reach",
+                Near(DistrictRules.InfluenceRadiusTiles(4000, Default, infl) / DistrictRules.InfluenceRadiusTiles(1000, Default, infl), 2f, 0.12f));
+            Check("a metropolis is nowhere near the old 150-tile reach", rMetro < 10f);
+            Check("even a huge city stays bounded", DistrictRules.InfluenceRadiusTiles(100000, Default, infl) < 30f);
+
+            Check("a hamlet still colours its surroundings, via the floor",
+                Near(DistrictRules.InfluenceRadiusTiles(20, Default, infl), DistrictRules.MinInfluenceTiles, 0.001f));
+            Check("the floor never exceeds a real settlement's reach", rTown > DistrictRules.MinInfluenceTiles);
+            Check("nobody has no reach at all", DistrictRules.InfluenceRadiusTiles(0, Default, infl) == 0f);
+
+            Check("a higher multiplier carries further",
+                DistrictRules.InfluenceRadiusTiles(6100, Default, 52f) > rMetro);
+            Check("a nonsense multiplier falls back to the default rather than collapsing",
+                DistrictRules.InfluenceRadiusTiles(6100, Default, 0f) == rMetro
+                && DistrictRules.InfluenceRadiusTiles(6100, Default, -5f) == rMetro);
+            Check("the convenience overload matches the explicit default",
+                DistrictRules.InfluenceRadiusTiles(6100, Default) == rMetro);
+            // The same head count is the same ground whatever the map size - a district is just a
+            // different slice of it - so reach is independent of map size bar district rounding.
+            Check("reach is the same ground whatever the map size",
+                Near(DistrictRules.InfluenceRadiusTiles(6100, 500, infl), rMetro, rMetro * 0.05f));
+
+            // Why the reach fix is also the performance fix: a source only touches the tiles inside its
+            // reach, so the hex neighbourhood it must paint is small and bounded.
+            Check("a metropolis paints ~100 tiles, not ~70,000",
+                (3f * rMetro * (rMetro + 1f) + 1f) < 200f);
+
             Console.WriteLine();
             if (failures == 0) { Console.WriteLine("ALL DISTRICT TESTS PASSED"); return 0; }
             Console.WriteLine(failures + " DISTRICT TEST(S) FAILED");

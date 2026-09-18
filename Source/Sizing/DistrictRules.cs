@@ -282,6 +282,51 @@ namespace RegionsAndSocieties.Sizing
             return BuiltRadiusDistricts(districts) / acrossTile;
         }
 
+        // -- demographic influence (#70) ---------------------------------------
+
+        /// <summary>
+        /// How far a settlement's demographic pull reaches beyond its own built edge, as a multiple
+        /// of that edge. Dimensionless, unlike the population multiplier it replaced.
+        ///
+        /// <para>The band worth tuning within: at 13 a village reaches ~1 tile and a metropolis ~3;
+        /// at ~70 a town reaches a whole region radius, which is what the pre-0.5.0 tuning target of
+        /// "border regions at 50-60% their own make-up" implies. 26 sits between them (a village
+        /// ~2 tiles, a town ~3.3, a metropolis ~5.9) and is a starting point, not a measured answer.
+        /// #30 tunes it against the border-blend target in a live world.</para>
+        /// </summary>
+        public const float DefaultInfluenceMultiplier = 26f;
+
+        /// <summary>The floor on influence, in tiles. Even a hamlet's people are known in the
+        /// countryside around them, and without a floor a small settlement would colour nothing but
+        /// its own tile. Roughly a few hours' walk.</summary>
+        public const float MinInfluenceTiles = 1.5f;
+
+        /// <summary>
+        /// The radius, in world tiles, within which a settlement colours the demographics around it.
+        /// <b>Grows as the square root of population</b>, because built area is proportional to
+        /// population and radius goes as the square root of area - the fix #70 exists for. The reach
+        /// it replaced was linear in population and measured in tiles, so a 150-person settlement
+        /// projected pressure ~150 tiles and the culling that depends on reach could never fire.
+        ///
+        /// <para>Pressure is exactly zero beyond this distance, and must stay that way: the region
+        /// aggregation culls sources by reach, so a non-zero tail would make every source relevant to
+        /// every tile again. Population living out in the open country is modelled by
+        /// <see cref="HinterlandPopulation"/> instead, not by stretching every settlement's reach.</para>
+        /// </summary>
+        public static float InfluenceRadiusTiles(int population, int mapEdgeCells, float influenceMultiplier)
+        {
+            if (population <= 0) return 0f;
+            float mult = influenceMultiplier > 0f ? influenceMultiplier : DefaultInfluenceMultiplier;
+            float reach = BuiltRadiusTiles(population, mapEdgeCells) * mult;
+            return reach < MinInfluenceTiles ? MinInfluenceTiles : reach;
+        }
+
+        /// <summary>Influence radius at the default multiplier.</summary>
+        public static float InfluenceRadiusTiles(int population, int mapEdgeCells)
+        {
+            return InfluenceRadiusTiles(population, mapEdgeCells, DefaultInfluenceMultiplier);
+        }
+
         private static int RoundToInt(float v)
         {
             return (int)System.Math.Round(v, System.MidpointRounding.AwayFromZero);
