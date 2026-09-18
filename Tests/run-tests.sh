@@ -108,6 +108,12 @@ run_suite seedingmaturity Exe \
     Tests/SeedingMaturityRulesTests.cs \
     $SRC/Sizing/SeedingMaturityRules.cs
 
+# 0.5.0 world scale (#67): how big a world tile is in the player's own local maps, derived from
+# RimWorld's travel clock (3300 ticks per tile / 2500 per hour). Pure, no game — one file.
+run_suite worldscale Exe \
+    Tests/WorldScaleRulesTests.cs \
+    $SRC/Sizing/WorldScaleRules.cs
+
 # 0.3.0 settlement birthrate-growth core (#6): tech-informed rate + logistic step toward the target.
 # Pure, no game — needs only the standalone BirthrateRules.
 run_suite birthrate Exe \

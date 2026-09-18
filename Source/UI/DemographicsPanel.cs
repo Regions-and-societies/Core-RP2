@@ -4,6 +4,7 @@ using RimWorld;
 using UnityEngine;
 using Verse;
 using RegionsAndSocieties.Demographics;
+using RegionsAndSocieties.Sizing;
 
 namespace RegionsAndSocieties.UI
 {
@@ -42,6 +43,17 @@ namespace RegionsAndSocieties.UI
                 ResidenceProfile res = ResidenceRules.For(population);
                 y = NoteSection(rect, y, $"Residences  —  {res.tier}",
                     $"{res.residences} homes · {res.occupancy:0.0} people per home · {population} residents\nland per person {res.landPerPawn:0.00} (relative)");
+                y += SectionGap;
+            }
+
+            // #67: what ground these numbers actually describe. A tile is ~374 default maps, so the
+            // populations above are a region, not a colony; reads the player's real map size, which a
+            // larger-map mod changes.
+            {
+                int mapEdge = Find.World?.info?.initialMapSize.x ?? WorldScaleRules.DefaultMapEdgeCells;
+                if (mapEdge <= 0) mapEdge = WorldScaleRules.DefaultMapEdgeCells;
+                y = NoteSection(rect, y, "World scale",
+                    WorldScaleRules.RatioLabel(mapEdge));
                 y += SectionGap;
             }
 

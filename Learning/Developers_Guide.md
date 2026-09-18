@@ -13,6 +13,7 @@ Contents:
 - [Holding-seeding policies](#holding-seeding-policies) — decide how many holdings to seed at worldgen, and where
 - [Region partition algorithms](#region-partition-algorithms-040) — plug in your own way of cutting the globe into provinces
 - [Region-count estimates](#region-count-estimates-040) — the shared "≈ N regions" maths
+- [World scale](#world-scale-050) — how much ground one world tile is, in the player's own maps
 - [Demographic providers](#demographic-providers) — contribute a demographics component to ownership
 - [Territory-claim hook](#territory-claim-hook) — consume the contested-settlement event
 - [Ownership vocabulary](#ownership-vocabulary) — tiers, thresholds and placement rules
@@ -470,6 +471,67 @@ int high       = PlacementEstimates.ExpectedRegionCountHigh(land, targetRegionSi
 ```
 
 ---
+
+## World scale (0.5.0)
+
+New in 0.5.0 (#67). The one place that answers "how much ground is one world tile?" — every population,
+residence and land figure in the mod is scaled against it, and so is anything you build on top.
+Namespace `RegionsAndSocieties.Sizing`, class `WorldScaleRules` (all members `static`).
+
+**Where the number comes from.** RimWorld ships two mutually inconsistent scales, and this adopts the second:
+
+- *Movement equivalence.* `CaravanTicksPerMoveUtility.CellToTilesConversionRatio` is 340, so crossing a tile
+  costs what walking 340 cells costs — about **one local map per tile**. Rejected: a fully built 250x250 map
+  holds roughly 100 people at a realistic density, and tiles capped at 100 people cannot carry a regional
+  population model. RimWorld cannot build vertically, so that ceiling is real rather than a tuning choice.
+- *Travel time (adopted).* `DefaultTicksPerMove` 3300 / `GenDate.TicksPerHour` 2500 = **1.32 in-game hours**
+  to cross a tile. At a ~4.5 km/h march that is 5.94 km, rounded to a flat **6 km** across, giving **23.4 km²**.
+
+Vanilla therefore compresses overland travel roughly **19:1** against its own geography, the same way it
+compresses weapon ranges. That is a gameplay decision: **core never touches caravan speed**. This class
+describes ground, not travel.
+
+| Member | Signature | Returns |
+|---|---|---|
+| `TravelHoursPerTile` | `float` | 1.32 — the derivation's starting point, from RimWorld's own constants. |
+| `TileAcrossKmFromMarch` | `float TileAcrossKmFromMarch(float kmPerHour)` | Tile width implied by a marching pace, so the adopted 6 km can be rechecked or retuned. |
+| `TileAreaKm2` / `TileAreaM2` | `float` | Ground in one tile: ~23.4 km². |
+| `MapAreaM2` / `MapAreaKm2` | `float (int mapEdgeCells)` | Ground one local map covers, at 1 m per cell. |
+| `MapsPerTile` | `float MapsPerTile(int mapEdgeCells)` | How many maps of that size tile one world tile. |
+| `GridSide` | `float GridSide(int mapEdgeCells)` | Side of the square grid of maps covering a tile. |
+| `DistrictsAcrossTile` / `DistrictAreaKm2` | `float (int mapEdgeCells)` | The same numbers in the district vocabulary: one district is one local map. |
+| `RatioLabel` | `string RatioLabel(int mapEdgeCells)` | The player-facing sentence, as shown in the region panel. |
+
+Constants: `TileAcrossKm` (6.0), `HexAreaFactor` (3·√3/8), `MetresPerCell` (1.0 — RimWorld never states this;
+it is the furniture scale, a bed being 1x2 cells), `DefaultMapEdgeCells` (250), plus the two RimWorld
+constants the derivation starts from.
+
+**The ratio moves with the player's map size**, so a larger-map mod shrinks it instead of breaking the model:
+
+| Map size | Maps per tile | Grid |
+|---|---|---|
+| 200x200 | 585 | 24 x 24 |
+| 250x250 (default) | 374 | 19 x 19 |
+| 300x300 | 260 | 16 x 16 |
+| 400x400 | 146 | 12 x 12 |
+| 500x500 | 94 | 10 x 10 |
+
+**Worked example** — sizing your own content against a tile rather than against a map:
+
+```csharp
+int mapEdge = Find.World?.info?.initialMapSize.x ?? WorldScaleRules.DefaultMapEdgeCells;
+float maps   = WorldScaleRules.MapsPerTile(mapEdge);        // 374 at the default size
+float tileKm2 = WorldScaleRules.TileAreaKm2;                // 23.4
+
+// A settlement of `pop` people at a build density, as a share of its tile:
+float builtKm2 = pop / peoplePerKm2;
+float shareOfTile = builtKm2 / tileKm2;                     // a metropolis uses about a sixth
+
+Log.Message(WorldScaleRules.RatioLabel(mapEdge));           // the sentence players read
+```
+
+Read the map size from `WorldInfo.initialMapSize` rather than assuming 250 — it is saved on the world, so it
+is readable on the world map before settling, and it already reflects whatever a larger-map mod set.
 
 ## Demographic providers
 
